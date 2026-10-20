@@ -4,7 +4,7 @@ import json
 
 import requests
 
-from .config import COL, PROPERTY_ALIAS_COLUMNS
+from .config import COL, PROPERTY_ADDRESS_COLUMNS, PROPERTY_NAME_COLUMNS
 
 API = "https://api.monday.com/v2"
 FILE_API = "https://api.monday.com/v2/file"
@@ -59,18 +59,27 @@ class Monday:
         return items
 
     def properties(self, country: str, board_id: int) -> list[dict]:
-        alias_cols = PROPERTY_ALIAS_COLUMNS[country]
-        out = []
-        for item in self.board_items(board_id, alias_cols):
-            aliases = [item["cols"][c]["text"] for c in alias_cols if item["cols"].get(c, {}).get("text")]
-            out.append({
+        name_cols, addr_cols = PROPERTY_NAME_COLUMNS[country], PROPERTY_ADDRESS_COLUMNS[country]
+
+        def texts(item, cols):
+            seen = []
+            for c in cols:
+                t = item["cols"].get(c, {}).get("text", "").strip()
+                if t and t not in seen:
+                    seen.append(t)
+            return seen
+
+        return [
+            {
                 "id": item["id"],
                 "name": item["name"],
                 "country": country,
                 "area": (item.get("group") or {}).get("title", ""),
-                "aliases": aliases,
-            })
-        return out
+                "aliases": texts(item, name_cols),
+                "addresses": texts(item, addr_cols),
+            }
+            for item in self.board_items(board_id, name_cols + addr_cols)
+        ]
 
     def expense_items(self, board_id: int) -> list[dict]:
         return self.board_items(board_id, [

@@ -53,10 +53,15 @@ CATEGORIES = {
     "Canada": [c.replace("UTILITIES", "Utilities (Hydro, Gas, Water)") for c in _CATEGORIES],
 }
 
-# Property Master columns used to help Claude match the property name people type.
-PROPERTY_ALIAS_COLUMNS = {
-    "USA": ["text_mm84gh2k", "text_mm84fcb0", "text__1"],      # Hospitable Name, Listing Title, Address
-    "Canada": ["text_mm848pmd", "text_mm84qpy8", "text__1"],
+# Property Master columns used to help Claude match the property name people type
+# or the address printed on the receipt.
+PROPERTY_NAME_COLUMNS = {
+    "USA": ["text_mm84gh2k", "text_mm84fcb0"],       # Hospitable Name, Listing Title
+    "Canada": ["text_mm848pmd", "text_mm84qpy8"],
+}
+PROPERTY_ADDRESS_COLUMNS = {
+    "USA": ["text__1", "text_mm84a977"],             # Address, Hospitable Address
+    "Canada": ["text__1", "text_mm84qys9"],
 }
 
 TIMEZONE = "America/Toronto"

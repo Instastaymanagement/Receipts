@@ -176,7 +176,8 @@ class Runner:
         elif r.is_overhead and r.country:
             country = r.country
         else:
-            raise Problem(r.problem or "I couldn't match the property. Reply with the property name as it appears in Monday.")
+            raise Problem(r.problem or "I couldn't match a property from the message or an address on the receipt. "
+                                       "Reply with the property name as it appears in Monday.")
 
         when, date_note = posted, " (no date on receipt, used post date)"
         if r.receipt_date:
@@ -210,9 +211,12 @@ class Runner:
         note = (
             f"From Slack ({ref}) by {poster} on {posted:%Y-%m-%d}: {text.strip()}\n{permalink}\n"
             f"Read by Claude: {r.description}. Confidence: {r.confidence}."
+            + (f"\nProperty matched from receipt address: {r.receipt_address}." if prop and r.property_source == "receipt_address" else "")
             + (f"\nCheck: {'; '.join(warnings)}." if warnings else "")
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
+        if prop and r.property_source == "receipt_address":
+            prop_label += " (from address on receipt)"
         summary = (
             f"{r.vendor} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"

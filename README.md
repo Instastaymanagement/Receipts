@@ -11,12 +11,13 @@ Slack #expense-receipts ──► GitHub Actions (nightly) ──► Claude read
 
 ## How the team posts
 
-Post the receipt photo or PDF in the channel with the property name in the same message:
+Post the receipt photo or PDF in the channel, ideally with the property name in the same message:
 
 > Property: 46 Cortland
 > Paid: Amex 1007 *(optional)*
 > Note: smoke detector replacement *(optional)*
 
+- **No property name?** The bot also reads the address printed on the receipt (Amazon "Ship to", utility "Service address", contractor job site) and matches it against the addresses in Properties Master. It never uses the store's own address. Several units share one street address (e.g. 16 Alton, 33 Oakland, 5211 Wilkins, 10 Wait, 187 Winthrop, 7902 Tysons One Pl, 306 Spruce, 948 Princess). For those it needs the unit, from the receipt or the message, or it asks.
 - Several photos of the same receipt in one post are fine. So are several different receipts in one post.
 - For costs that aren't tied to one property, write `Property: Overhead USA` or `Property: Overhead Canada`.
 - After the nightly run, the bot replies in the thread:
