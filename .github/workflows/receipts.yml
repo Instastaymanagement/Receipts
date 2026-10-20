@@ -1,0 +1,50 @@
+name: Nightly receipts
+
+on:
+  schedule:
+    # 9 pm Toronto. GitHub cron is UTC, so both run and the script keeps
+    # whichever one is 9 pm local that day (EDT = 01:00 UTC, EST = 02:00 UTC).
+    - cron: "0 1 * * *"
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run: read receipts but don't write to Monday or Slack"
+        type: boolean
+        default: true
+
+concurrency:
+  group: receipts
+  cancel-in-progress: false
+
+jobs:
+  run:
+    # Nightly runs stay off until the repo variable RECEIPTS_ENABLED is set to "true".
+    if: github.event_name == 'workflow_dispatch' || vars.RECEIPTS_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python -m receipt_bot.main
+        env:
+          SCHEDULE: ${{ github.event.schedule }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+          SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
+          MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+  test:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt pytest && pytest -q
