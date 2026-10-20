@@ -18,7 +18,7 @@ class Receipt(BaseModel):
     readable: bool = Field(description="False if the file is not a receipt/invoice or the total cannot be read.")
     problem: str | None = Field(description="If something is missing or unclear, a short note for the team. Otherwise null.")
     vendor: str = Field(description="Store or company name, e.g. 'Home Depot'.")
-    description: str = Field(description="A few words on what was bought, e.g. 'Smoke detectors and batteries'.")
+    description: str = Field(description="What was bought, used as the item name after the vendor. Name the actual items, e.g. 'Washable hallway runner rug' or 'Smoke detectors, AA batteries, dish soap'. Keep it under ~80 characters; for long receipts list the main items and add 'etc.'")
     receipt_date: str | None = Field(description="Purchase date as YYYY-MM-DD, or null if not shown.")
     total: float | None = Field(description="Grand total actually charged, including tax and tip. Positive number.")
     tax: float | None = Field(description="Sales tax / HST included in the total. 0 if none shown, null if unclear.")

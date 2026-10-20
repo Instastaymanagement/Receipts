@@ -41,6 +41,14 @@ class Problem(Exception):
     """Something the poster needs to fix. Shown in the Slack thread."""
 
 
+def item_name(r: Receipt) -> str:
+    """e.g. "Amazon.ca - Washable hallway runner rug"."""
+    name = r.vendor or "Receipt"
+    if r.description:
+        name += f" - {r.description}"
+    return name[:250]
+
+
 def item_url(board_id: int, item_id: str) -> str:
     return f"{MONDAY_ACCOUNT_URL}/boards/{board_id}/pulses/{item_id}"
 
@@ -205,7 +213,7 @@ class Runner:
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
         summary = (
-            f"{r.vendor} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
+            f"{item_name(r)} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"
         )
 
@@ -245,7 +253,7 @@ class Runner:
                 values[COL["property"]] = {"item_ids": [int(prop["id"])]}
             if category:
                 values[COL["category"]] = {"labels": [category]}
-            item_id = self.monday.create_item(board_id, r.vendor or "Receipt", values)
+            item_id = self.monday.create_item(board_id, item_name(r), values)
             items.append({"id": item_id, "name": r.vendor, "cols": {
                 COL["statement_ref"]: {"text": ref}, COL["notes"]: {"text": note},
                 COL["receipt_status"]: {"text": "Uploaded"},
