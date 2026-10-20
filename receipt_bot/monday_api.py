@@ -78,7 +78,42 @@ class Monday:
             COL["statement_ref"], COL["notes"], COL["property"], COL["category"],
         ])
 
+    def workspace_boards(self, workspace_id: int) -> list[dict]:
+        boards, page = [], 1
+        while True:
+            batch = self._gql(
+                """query ($ws: [ID!], $page: Int!) {
+                     boards(workspace_ids: $ws, state: active, limit: 500, page: $page) { id name board_folder_id }
+                   }""",
+                {"ws": [workspace_id], "page": page},
+            )["boards"]
+            boards += batch
+            if len(batch) < 500:
+                return boards
+            page += 1
+
+    def board_groups(self, board_id: int) -> list[dict]:
+        return self._gql("query ($b: [ID!]) { boards(ids: $b) { groups { id title } } }", {"b": [board_id]})["boards"][0]["groups"]
+
     # --- writes ---
+
+    def duplicate_board(self, template_id: int, name: str, workspace_id: int, folder_id: int) -> int:
+        data = self._gql(
+            """mutation ($b: ID!, $name: String!, $ws: ID!, $folder: ID!) {
+                 duplicate_board(board_id: $b, duplicate_type: duplicate_board_with_structure, board_name: $name,
+                                 workspace_id: $ws, folder_id: $folder, keep_subscribers: true) { board { id } }
+               }""",
+            {"b": template_id, "name": name, "ws": workspace_id, "folder": folder_id},
+        )
+        return int(data["duplicate_board"]["board"]["id"])
+
+    def rename_group(self, board_id: int, group_id: str, title: str) -> None:
+        self._gql(
+            """mutation ($b: ID!, $g: String!, $t: String!) {
+                 update_group(board_id: $b, group_id: $g, group_attribute: title, new_value: $t) { id }
+               }""",
+            {"b": board_id, "g": group_id, "t": title},
+        )
 
     def create_item(self, board_id: int, name: str, column_values: dict) -> str:
         if self.dry_run:

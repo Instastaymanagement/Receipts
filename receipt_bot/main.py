@@ -11,6 +11,7 @@ from .config import (
     BOARDS, CATEGORIES, COL, SUB_COL, COUNTRIES, DONE_REACTION, DRY_RUN, LOOKBACK_DAYS,
     MONDAY_ACCOUNT_URL, TIMEZONE, WARN_REACTION, env,
 )
+from .boards import BoardManager
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
 from .matching import already_logged, find_statement_match, resolve_account
 from .monday_api import Monday
@@ -89,6 +90,7 @@ class Runner:
             self.properties += self.monday.properties(country, BOARDS[country]["properties_board"])
         self.props_by_id = {p["id"]: p for p in self.properties}
         self.extractor = Extractor(env("ANTHROPIC_API_KEY"), self.properties)
+        self.boards = BoardManager(self.monday, dry_run=DRY_RUN)
         self.board_items: dict[int, list[dict]] = {}
         self.stats = Stats()
 
@@ -98,6 +100,12 @@ class Runner:
         return self.board_items[board_id]
 
     def run(self) -> None:
+        try:
+            self.boards.ensure_upcoming(datetime.now(TZ).date())
+        except Exception:
+            self.stats.errors += 1
+            print("Error creating monthly boards:", file=sys.stderr)
+            traceback.print_exc()
         oldest = (datetime.now(timezone.utc) - timedelta(days=LOOKBACK_DAYS)).timestamp()
         for msg in self.slack.history(self.channel, oldest):
             if msg.get("bot_id") or msg.get("user") == self.slack.bot_user_id or not msg.get("files"):
@@ -178,9 +186,10 @@ class Runner:
                 pass
 
         month = when.strftime("%Y-%m")
-        board_id = BOARDS[country]["expense_boards"].get(month)
+        board_id = self.boards.board_for(country, month)
         if not board_id:
-            raise Problem(f"There's no {country} expense board for {when:%B %Y} in boards.json yet (admin needs to add it).")
+            raise Problem(f"The date reads {when:%b %d, %Y}, and there's no {country} expense board for that month "
+                          f"(boards are only kept from {BOARDS['first_month']} on). If the date is wrong, reply with the correct one.")
 
         items = self.items(board_id)
         done = already_logged(items, ref)
@@ -278,6 +287,8 @@ class Runner:
     def post_summary(self) -> None:
         s = self.stats
         total = sum(s.logged.values()) + s.attached
+        if self.boards.created:
+            self.slack.post(self.channel, "Created new expense board(s) on Monday: " + ", ".join(self.boards.created))
         if not (total or s.needs_attention or s.errors):
             print("No new receipts.")
             return

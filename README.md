@@ -67,15 +67,15 @@ Post the receipt photo or PDF in the channel with the property name in the same 
 ### 4. Test
 In **Actions → Nightly receipts → Run workflow**, keep **Dry run** ticked. The log shows what would be written, and nothing changes in Monday or Slack. Untick it to do a real run on demand.
 
-## Monthly upkeep
+## Monthly boards (automatic)
 
-Before the 1st of each month, create the new month's expense boards. Then add their IDs to `boards.json`:
+Nobody needs to create boards or edit IDs.
 
-```json
-"expense_boards": { "2026-11": 18435986315, "2026-12": <new board id> }
-```
+- **Every run** checks that this month's expense board exists in each country's expenses folder. **From the 25th** it also checks next month's.
+- **If a board is missing**, the bot copies the country's template board (the November 2026 board), structure only. That includes the subitem Qty/Price columns. It names the copy `Expenses YYYY-MM · Month`, renames its group to `Month YYYY`, and posts a note in Slack.
+- **Each receipt goes to the board for its month.** The bot finds it by that name, creating it if needed. Boards are only created from `first_month` (October 2026) up to next month, so a misread date can't create a board for a random year.
 
-The board ID is the number in the board's URL. If a month is missing, receipts for that month get ⚠️ until it's added.
+`boards.json` holds the template board, the folder IDs, and the boards made before this existed (`existing_boards`). Don't rename or delete the template boards.
 
 ## Running locally
 
@@ -93,5 +93,6 @@ pytest -q
 - `receipt_bot/matching.py`: account lookup, duplicate and statement-line matching
 - `receipt_bot/schedule.py`: 9 pm Toronto check (handles daylight saving)
 - `receipt_bot/config.py`: column IDs, account and category labels
-- `boards.json`: which Monday board each month goes to
+- `receipt_bot/boards.py`: finds or creates each month's board
+- `boards.json`: template boards, folders, and older boards
 - `.github/workflows/receipts.yml`: cron schedule

@@ -1,15 +1,22 @@
 {
-  "_comment": "Monthly expense boards per country. Add next month's board ID here before the 1st of the month. Key = YYYY-MM of the receipt date.",
+  "_comment": "Monthly expense boards are created automatically by copying template_board, named 'Expenses YYYY-MM · Month' in the expenses folder. existing_boards lists boards made before that, which don't follow the naming.",
+  "first_month": "2026-10",
   "USA": {
     "properties_board": 18435507823,
-    "expense_boards": {
+    "workspace_id": 18021638,
+    "expenses_folder_id": 21667385,
+    "template_board": 18435986315,
+    "existing_boards": {
       "2026-10": 18436315045,
       "2026-11": 18435986315
     }
   },
   "Canada": {
     "properties_board": 18435476437,
-    "expense_boards": {
+    "workspace_id": 18020114,
+    "expenses_folder_id": 21667384,
+    "template_board": 18435986309,
+    "existing_boards": {
       "2026-10": 18436307194,
       "2026-11": 18435986309
     }
