@@ -13,12 +13,19 @@ IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 
 
+class LineItem(BaseModel):
+    name: str = Field(description="Item as a person would describe it, e.g. 'Washable hallway runner rug 2x8 ft'. Expand cryptic receipt abbreviations where you can.")
+    quantity: float | None = Field(description="Quantity, or null if not shown.")
+    price: float | None = Field(description="Line total for this item before tax (quantity x unit price, after any line discount), or null if not shown.")
+
+
 class Receipt(BaseModel):
     file_indexes: list[int] = Field(description="Which attached files (0-based) make up this receipt. Several pages of one receipt = one entry.")
     readable: bool = Field(description="False if the file is not a receipt/invoice or the total cannot be read.")
     problem: str | None = Field(description="If something is missing or unclear, a short note for the team. Otherwise null.")
     vendor: str = Field(description="Store or company name, e.g. 'Home Depot'.")
-    description: str = Field(description="What was bought, used as the item name after the vendor. Name the actual items, e.g. 'Washable hallway runner rug' or 'Smoke detectors, AA batteries, dish soap'. Keep it under ~80 characters; for long receipts list the main items and add 'etc.'")
+    description: str = Field(description="Short summary of what was bought, e.g. 'Hallway rug and rug pad'.")
+    line_items: list[LineItem] = Field(description="Every individual item on the receipt, in order. Do not skip or group items. Leave out tax, totals, payment and discount-only lines.")
     receipt_date: str | None = Field(description="Purchase date as YYYY-MM-DD, or null if not shown.")
     total: float | None = Field(description="Grand total actually charged, including tax and tip. Positive number.")
     tax: float | None = Field(description="Sales tax / HST included in the total. 0 if none shown, null if unclear.")

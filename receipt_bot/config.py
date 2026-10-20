@@ -28,6 +28,9 @@ COL = {
     "notes": "notes",
 }
 
+# Columns on the expense boards' subitems (one subitem per line on the receipt).
+SUB_COL = {"qty": "item_qty", "price": "item_price"}
+
 # "Account" status labels on each country's expense boards.
 ACCOUNTS = {
     "USA": ["Amex 1002", "Amex 1007", "Mercury", "Chase 3624", "Checking 7543", "Cash"],

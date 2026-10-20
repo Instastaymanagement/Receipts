@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .config import (
-    BOARDS, CATEGORIES, COL, COUNTRIES, DONE_REACTION, DRY_RUN, LOOKBACK_DAYS,
+    BOARDS, CATEGORIES, COL, SUB_COL, COUNTRIES, DONE_REACTION, DRY_RUN, LOOKBACK_DAYS,
     MONDAY_ACCOUNT_URL, TIMEZONE, WARN_REACTION, env,
 )
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
@@ -39,14 +39,6 @@ class SlackFile:
 
 class Problem(Exception):
     """Something the poster needs to fix. Shown in the Slack thread."""
-
-
-def item_name(r: Receipt) -> str:
-    """e.g. "Amazon.ca - Washable hallway runner rug"."""
-    name = r.vendor or "Receipt"
-    if r.description:
-        name += f" - {r.description}"
-    return name[:250]
 
 
 def item_url(board_id: int, item_id: str) -> str:
@@ -213,7 +205,7 @@ class Runner:
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
         summary = (
-            f"{item_name(r)} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
+            f"{r.vendor} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"
         )
 
@@ -224,7 +216,8 @@ class Runner:
                 COL["receipt_status"]: {"label": "Uploaded"},
                 COL["notes"]: {"text": (cols.get(COL["notes"], {}).get("text", "") + "\n\n" + note).strip()},
             }
-            if prop and not cols.get(COL["property"], {}).get("text"):
+            existing_prop = cols.get(COL["property"], {})
+            if prop and not (existing_prop.get("text") or existing_prop.get("value")):
                 update[COL["property"]] = {"item_ids": [int(prop["id"])]}
             if category and not cols.get(COL["category"], {}).get("text"):
                 update[COL["category"]] = {"labels": [category]}
@@ -253,7 +246,7 @@ class Runner:
                 values[COL["property"]] = {"item_ids": [int(prop["id"])]}
             if category:
                 values[COL["category"]] = {"labels": [category]}
-            item_id = self.monday.create_item(board_id, item_name(r), values)
+            item_id = self.monday.create_item(board_id, r.vendor or "Receipt", values)
             items.append({"id": item_id, "name": r.vendor, "cols": {
                 COL["statement_ref"]: {"text": ref}, COL["notes"]: {"text": note},
                 COL["receipt_status"]: {"text": "Uploaded"},
@@ -263,8 +256,21 @@ class Runner:
 
         for f in files:
             self.monday.upload_file(item_id, f.name, f.original, f.mimetype)
+        for li in r.line_items:
+            sub = {}
+            if li.quantity is not None:
+                sub[SUB_COL["qty"]] = f"{li.quantity:g}"
+            if li.price is not None:
+                sub[SUB_COL["price"]] = f"{li.price:.2f}"
+            self.monday.create_subitem(item_id, li.name[:250], sub)
 
         line = f":white_check_mark: {verb}: {summary}\n{item_url(board_id, item_id)}"
+        if r.line_items:
+            line += "\n" + "\n".join(
+                f"   • {li.name}" + (f" ×{li.quantity:g}" if li.quantity and li.quantity != 1 else "")
+                + (f" ${li.price:,.2f}" if li.price is not None else "")
+                for li in r.line_items
+            )
         if warnings:
             line += f"\n_Please check in Monday: {'; '.join(warnings)}._"
         return line

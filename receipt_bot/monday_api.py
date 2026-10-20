@@ -92,6 +92,17 @@ class Monday:
         )
         return data["create_item"]["id"]
 
+    def create_subitem(self, parent_id: str, name: str, column_values: dict) -> None:
+        if self.dry_run:
+            print(f"[dry-run]   subitem under {parent_id}: {name} {json.dumps(column_values)}")
+            return
+        self._gql(
+            """mutation ($parent: ID!, $name: String!, $cols: JSON!) {
+                 create_subitem(parent_item_id: $parent, item_name: $name, column_values: $cols) { id }
+               }""",
+            {"parent": parent_id, "name": name, "cols": json.dumps(column_values)},
+        )
+
     def update_item(self, board_id: int, item_id: str, column_values: dict) -> None:
         if self.dry_run:
             print(f"[dry-run] update {item_id} on {board_id}: {json.dumps(column_values)}")
