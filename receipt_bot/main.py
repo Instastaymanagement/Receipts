@@ -13,12 +13,14 @@ from .config import (
 )
 from .boards import BoardManager
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
-from .matching import already_logged, find_statement_match, resolve_account
+from .matching import already_logged, find_statement_match, resolve_account, resolve_property
 from .monday_api import Monday
 from .schedule import should_run
 from .slack_api import Slack
 
 TZ = ZoneInfo(TIMEZONE)
+# Manual runs can re-check every ⚠️ post (e.g. after the matching rules change).
+RETRY_WARNINGS = os.environ.get("RETRY_WARNINGS", "").lower() in ("1", "true", "yes")
 
 
 @dataclass
@@ -116,7 +118,7 @@ class Runner:
             warned = self.slack.bot_user_id in reacted.get(WARN_REACTION, [])
             try:
                 text, has_new_reply = thread_text(self.slack, self.channel, msg)
-                if warned and not has_new_reply:
+                if warned and not has_new_reply and not RETRY_WARNINGS:
                     continue  # waiting for someone to reply with the fix
                 self.process(msg, text, warned)
             except Exception:
@@ -139,7 +141,7 @@ class Runner:
         else:
             extraction = self.extractor.extract(
                 f"Posted by {poster} on {posted:%Y-%m-%d}.\n{text}",
-                [(f.for_claude, f.claude_mimetype) for _, f in readable],
+                [(f.for_claude, f.claude_mimetype, f.name) for _, f in readable],
             )
             if not extraction.receipts:
                 problems.append("I couldn't find a receipt in the attachment.")
@@ -170,14 +172,16 @@ class Runner:
         if not r.readable or r.total is None:
             raise Problem(r.problem or "I couldn't read the total on this receipt. Please post a clearer photo.")
 
-        prop = self.props_by_id.get(r.property_id or "")
+        prop_id, matched_by, prop_problem, prop_note = resolve_property(
+            self.props_by_id, r.message_property_id, r.label_property_id, r.address_property_id,
+            r.label_text, r.receipt_address)
+        prop = self.props_by_id.get(prop_id or "")
         if prop:
             country = prop["country"]
         elif r.is_overhead and r.country:
-            country = r.country
+            country, matched_by = r.country, "Slack post"
         else:
-            raise Problem(r.problem or "I couldn't match a property from the message or an address on the receipt. "
-                                       "Reply with the property name as it appears in Monday.")
+            raise Problem(prop_problem)
 
         when, date_note = posted, " (no date on receipt, used post date)"
         if r.receipt_date:
@@ -207,16 +211,21 @@ class Runner:
             warnings.append("account not identified")
         if r.problem:
             warnings.append(r.problem)
+        if prop_note and matched_by == "Slack post":
+            warnings.append(prop_note)
 
         note = (
             f"From Slack ({ref}) by {poster} on {posted:%Y-%m-%d}: {text.strip()}\n{permalink}\n"
             f"Read by Claude: {r.description}. Confidence: {r.confidence}."
-            + (f"\nProperty matched from receipt address: {r.receipt_address}." if prop and r.property_source == "receipt_address" else "")
+            + f"\nProperty matched by: {matched_by}."
+            + (f" File name/PO: {r.label_text}." if r.label_text else "")
+            + (f" Shipped to: {r.receipt_address}." if r.receipt_address else "")
+            + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
             + (f"\nCheck: {'; '.join(warnings)}." if warnings else "")
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
-        if prop and r.property_source == "receipt_address":
-            prop_label += " (from address on receipt)"
+        if prop and matched_by != "Slack post":
+            prop_label += f" (matched by {matched_by})"
         summary = (
             f"{r.vendor} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"

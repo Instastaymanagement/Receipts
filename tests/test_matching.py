@@ -37,3 +37,42 @@ def test_already_logged_by_ref_or_note():
     assert already_logged(items, "slack:1.2:0")["id"] == "a"
     assert already_logged(items, "slack:3.4:0")["id"] == "b"
     assert already_logged(items, "slack:5.6:0") is None
+
+
+from receipt_bot.matching import resolve_property
+
+IDS = {"thistle": {}, "sarnia": {}, "crab": {}}
+
+
+def test_post_wins_and_flags_disagreement():
+    pid, how, problem, warn = resolve_property(IDS, "crab", "thistle", None, "Thistledown")
+    assert (pid, how, problem) == ("crab", "Slack post", None)
+    assert "different property" in warn
+
+
+def test_label_and_address_agree_is_green():
+    assert resolve_property(IDS, None, "thistle", "thistle")[:3] == ("thistle", "file name/PO + shipping address", None)
+
+
+def test_unlisted_address_falls_back_to_label():
+    pid, how, problem, note = resolve_property(IDS, None, "thistle", None, "Thistledown", "24 Ranchwood Crescent")
+    assert (pid, how, problem) == ("thistle", "file name/PO", None)
+    assert "24 Ranchwood" in note
+
+
+def test_address_only():
+    assert resolve_property(IDS, None, None, "sarnia")[:3] == ("sarnia", "shipping address", None)
+
+
+def test_label_and_address_conflict():
+    pid, _, problem, _ = resolve_property(IDS, None, "thistle", "sarnia", "Thistledown", "600 Sarnia Rd")
+    assert pid is None and "different properties" in problem
+
+
+def test_nothing_matches_tells_slack():
+    pid, _, problem, _ = resolve_property(IDS, None, None, None, "Ranchwood", "290 Ashland Ave Apt 316")
+    assert pid is None and "290 Ashland" in problem and "Ranchwood" in problem
+
+
+def test_unknown_ids_ignored():
+    assert resolve_property(IDS, "bogus", None, "sarnia")[0] == "sarnia"

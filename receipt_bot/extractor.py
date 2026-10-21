@@ -32,9 +32,11 @@ class Receipt(BaseModel):
     currency: Literal["USD", "CAD", "OTHER"] | None
     card_last4: str | None = Field(description="Last 4 digits of the card used, if printed on the receipt.")
     country: Literal["USA", "Canada"] | None = Field(description="Country of the matched property.")
-    receipt_address: str | None = Field(description="Ship-to, delivery, service or job-site address printed on the receipt/invoice (NOT the store's or vendor's own address), or null if none.")
-    property_id: str | None = Field(description="ID of the matching property from the list, or null if no confident match.")
-    property_source: Literal["message", "receipt_address", "both", "none"] = Field(description="What the property match is based on: the Slack message, the address on the receipt, both agreeing, or none.")
+    message_property_id: str | None = Field(description="Property named in the Slack message/thread, matched to the list. Null if the post names none or it can't be matched confidently.")
+    label_text: str | None = Field(description="Property name/hint found in the attachment's FILE NAME or in a PO / reference / job / order-note field on the receipt (e.g. 'Thistledown', 'Sarnia'). Null if none.")
+    label_property_id: str | None = Field(description="Property that label_text refers to, matched to the list. Null if label_text is null or matches no listed property.")
+    receipt_address: str | None = Field(description="Ship-to, delivery, service or job-site address printed on the receipt (NOT the store's or vendor's own address). Null if none.")
+    address_property_id: str | None = Field(description="Property whose address matches receipt_address. Null if there's no address or it isn't a listed property address.")
     is_overhead: bool = Field(description="True if the post says it is a company / overhead / shared cost rather than one property.")
     account: str | None = Field(description="Exact account label from the country's list if the post or card digits identify it, else null.")
     category: str = Field(description="Exact category label from the list.")
@@ -51,16 +53,17 @@ Each Slack post has one or more attached files plus a message that names the pro
 
 Rules:
 - Return one entry per distinct receipt. Multiple photos/pages of the same receipt are one entry.
-- Property: use two sources.
-  1. The property named in the Slack message or thread. People use nicknames, street names, unit numbers or Hospitable names, so match generously.
-  2. The address printed on the receipt that says where the goods/service went: Amazon/online "Ship to" / "Delivered to", utility "Service address", contractor "Job site", delivery address, etc. Compare it with each property's addresses (street number + street name is enough; ignore formatting, abbreviations like St/Street or Rd/Road, and missing postal codes). Units matter when the list has several units at one address (e.g. Upstairs/Downstairs, Unit A/B): only pick one if the receipt or message says which.
-  Never use the store's or vendor's own address (the header address of Home Depot, Walmart, a restaurant, etc.) to match a property.
-  If only one source gives a property, use it. If both give the same property, property_source = "both". If they point to different properties, return property_id null and explain the conflict in `problem`. Only return a property_id you are confident about; if two properties could match, return null and explain in `problem`.
+- Property: report three independent sources. Fill each from its own evidence only; don't copy one into another. Code combines them afterwards.
+  1. message_property_id: the property named in the Slack message or thread. People use nicknames, street names, unit numbers or Hospitable names, so match generously.
+  2. label_text / label_property_id: a property name in the attachment's file name (given before each file, e.g. "Thistledown receipt.pdf") or written in a PO number / reference / job name / order note on the receipt. Match it to the property list by name or street name.
+  3. receipt_address / address_property_id: the address where the goods/service went (Amazon "Ship to", utility "Service address", contractor job site, delivery address). Compare with each property's addresses: street number + street name is enough; ignore formatting, St/Street, Rd/Road, missing postal codes. Never use the store's or vendor's own address. Many deliveries go to a team member's home, so an address that isn't in the list is normal: leave address_property_id null.
+  Units matter when several properties share a street address or name (e.g. Upstairs/Downstairs, Unit 1/2): only pick one if the evidence says which unit; otherwise leave that source null and say so in `problem`.
 - If the message says it's for the company, office, overhead or multiple properties, set is_overhead true, property_id null, and set country from context (USD/US address -> USA, CAD/Canadian address -> Canada) or null.
+- `problem` is for things the team must fix or check. Don't use it to report that a shipping address isn't a listed property (that's normal); only mention property matching there when a unit is ambiguous or the sources contradict each other.
 - Account: only choose from the account list for the property's country. Match on what the message says (e.g. "amex 1007", "BMO", "cash") or the card's last 4 digits. Otherwise null; don't guess.
 - Category: pick the single best label from the category list for the property's country.
 - Amounts: total is the final amount charged. Tax is sales tax / HST / GST included in that total.
-- If a receipt is unreadable, isn't a receipt, or no property can be matched from the message or the receipt address, still return an entry with readable/property set accordingly and a clear one-line `problem` the poster can act on."""
+- If a receipt is unreadable, isn't a receipt, still return an entry with readable/property set accordingly and a clear one-line `problem` the poster can act on."""
 
 
 def _reference_text() -> str:
@@ -87,10 +90,10 @@ class Extractor:
             for p in properties
         )
 
-    def extract(self, post_text: str, files: list[tuple[bytes, str]]) -> Extraction:
+    def extract(self, post_text: str, files: list[tuple[bytes, str, str]]) -> Extraction:
         content: list[dict] = []
-        for i, (data, mimetype) in enumerate(files):
-            content.append({"type": "text", "text": f"File {i}:"})
+        for i, (data, mimetype, filename) in enumerate(files):
+            content.append({"type": "text", "text": f'File {i}, file name "{filename}":'})
             content.append(file_block(data, mimetype))
         content.append({"type": "text", "text": f"Slack post (and thread replies):\n{post_text or '(no text)'}"})
 

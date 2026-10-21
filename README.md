@@ -17,7 +17,13 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 > Paid: Amex 1007 *(optional)*
 > Note: smoke detector replacement *(optional)*
 
-- **No property name?** The bot also reads the address printed on the receipt (Amazon "Ship to", utility "Service address", contractor job site) and matches it against the addresses in Properties Master. It never uses the store's own address. Several units share one street address (e.g. 16 Alton, 33 Oakland, 5211 Wilkins, 10 Wait, 187 Winthrop, 7902 Tysons One Pl, 306 Spruce, 948 Princess). For those it needs the unit, from the receipt or the message, or it asks.
+- **No property name?** The bot checks the attachment's **file name** and any **PO / reference** on the receipt (e.g. "Thistledown.pdf", PO "Sarnia"), and the **shipping address**:
+  - File name/PO and address match the same property: logged.
+  - Address isn't a listed property (e.g. shipped to someone's home): it uses the file name/PO.
+  - Only the address matches: it uses the address.
+  - Neither matches, or they point to different properties: ⚠️ in Slack.
+- The address it reads is the one printed on the receipt (Amazon "Ship to", utility "Service address", contractor job site) and matches it against the addresses in Properties Master. It never uses the store's own address. Several units share one street address (e.g. 16 Alton, 33 Oakland, 5211 Wilkins, 10 Wait, 187 Winthrop, 7902 Tysons One Pl, 306 Spruce, 948 Princess). For those it needs the unit, from the receipt or the message, or it asks.
+- To re-check ⚠️ posts without replying to each one, run the workflow manually with **Retry ⚠️ posts** ticked.
 - Several photos of the same receipt in one post are fine. So are several different receipts in one post.
 - For costs that aren't tied to one property, write `Property: Overhead USA` or `Property: Overhead Canada`.
 - After the nightly run, the bot replies in the thread:

@@ -12,6 +12,10 @@ on:
         description: "Dry run: read receipts but don't write to Monday or Slack"
         type: boolean
         default: true
+      retry_warnings:
+        description: "Re-check all ⚠️ posts from the last 7 days, even without a thread reply"
+        type: boolean
+        default: false
 
 concurrency:
   group: receipts
@@ -34,6 +38,7 @@ jobs:
         env:
           SCHEDULE: ${{ github.event.schedule }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
+          RETRY_WARNINGS: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_warnings || 'false' }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
           MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}
