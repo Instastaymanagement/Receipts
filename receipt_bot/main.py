@@ -8,7 +8,7 @@ from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from .config import (
-    BOARDS, CATEGORIES, COL, SUB_COL, COUNTRIES, DONE_REACTION, DRY_RUN, LOOKBACK_DAYS,
+    BOARDS, CATEGORIES, COL, PROPERTY_ALIASES, SUB_COL, COUNTRIES, DONE_REACTION, DRY_RUN, LOOKBACK_DAYS,
     MONDAY_ACCOUNT_URL, TIMEZONE, WARN_REACTION, env,
 )
 from .boards import BoardManager
@@ -90,6 +90,8 @@ class Runner:
         self.properties = []
         for country in COUNTRIES:
             self.properties += self.monday.properties(country, BOARDS[country]["properties_board"])
+        for p in self.properties:
+            p["aliases"] += PROPERTY_ALIASES.get(p["country"], {}).get(p["name"], [])
         self.props_by_id = {p["id"]: p for p in self.properties}
         self.extractor = Extractor(env("ANTHROPIC_API_KEY"), self.properties)
         self.boards = BoardManager(self.monday, dry_run=DRY_RUN)
@@ -120,7 +122,7 @@ class Runner:
                 text, has_new_reply = thread_text(self.slack, self.channel, msg)
                 if warned and not has_new_reply and not RETRY_WARNINGS:
                     continue  # waiting for someone to reply with the fix
-                self.process(msg, text, warned)
+                self.process(msg, text, warned, has_new_reply)
             except Exception:
                 # Bot/API failure, not the poster's fault: no reaction, so it retries next run.
                 self.stats.errors += 1
@@ -128,7 +130,7 @@ class Runner:
                 traceback.print_exc()
         self.post_summary()
 
-    def process(self, msg: dict, text: str, warned: bool) -> None:
+    def process(self, msg: dict, text: str, warned: bool, has_new_reply: bool) -> None:
         ts = msg["ts"]
         posted = datetime.fromtimestamp(float(ts), TZ)
         poster = self.slack.user_name(msg.get("user", ""))
@@ -155,20 +157,24 @@ class Runner:
                 except Problem as p:
                     problems.append(f"*{receipt.vendor or 'Receipt'}*: {p}")
 
+        lines = [line for line in lines if line]  # None = logged on an earlier run
         if problems:
             self.stats.needs_attention += 1
+            if warned and not has_new_reply and not lines:
+                print(f"Still needs attention, already told the thread: {ts}")
+                return  # retry run with nothing new: don't repeat the same warning
             reply = "\n".join(lines + [f":warning: {p}" for p in problems])
             reply += "\nReply in this thread with the fix and I'll pick it up on the next nightly run."
             self.slack.reply(self.channel, ts, reply)
             self.slack.react(self.channel, ts, WARN_REACTION)
         else:
-            self.slack.reply(self.channel, ts, "\n".join(lines))
+            self.slack.reply(self.channel, ts, "\n".join(lines) or ":white_check_mark: All receipts in this post are now logged.")
             self.slack.react(self.channel, ts, DONE_REACTION)
             if warned:
                 self.slack.unreact(self.channel, ts, WARN_REACTION)
 
     def log_receipt(self, r: Receipt, files: list[SlackFile], ref: str, posted: date,
-                    poster: str, text: str, permalink: str) -> str:
+                    poster: str, text: str, permalink: str) -> str | None:
         if not r.readable or r.total is None:
             raise Problem(r.problem or "I couldn't read the total on this receipt. Please post a clearer photo.")
 
@@ -199,7 +205,7 @@ class Runner:
         items = self.items(board_id)
         done = already_logged(items, ref)
         if done:
-            return f":white_check_mark: Already logged: {item_url(board_id, done['id'])}"
+            return None
 
         account = resolve_account(country, r.account, r.card_last4)
         category = r.category if r.category in CATEGORIES[country] else None
@@ -215,13 +221,13 @@ class Runner:
             warnings.append(prop_note)
 
         note = (
-            f"From Slack ({ref}) by {poster} on {posted:%Y-%m-%d}: {text.strip()}\n{permalink}\n"
+            f"From Slack ({ref}) by {poster} on {posted:%Y-%m-%d}: {text.strip() or '(no message)'}\n{permalink}\n"
             f"Read by Claude: {r.description}. Confidence: {r.confidence}."
             + f"\nProperty matched by: {matched_by}."
             + (f" File name/PO: {r.label_text}." if r.label_text else "")
             + (f" Shipped to: {r.receipt_address}." if r.receipt_address else "")
             + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
-            + (f"\nCheck: {'; '.join(warnings)}." if warnings else "")
+            + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
         if prop and matched_by != "Slack post":
@@ -294,7 +300,7 @@ class Runner:
                 for li in r.line_items
             )
         if warnings:
-            line += f"\n_Please check in Monday: {'; '.join(warnings)}._"
+            line += f"\n_Please check in Monday: {'; '.join(w.rstrip('. ') for w in warnings)}._"
         return line
 
     def post_summary(self) -> None:

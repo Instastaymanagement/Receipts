@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BOARDS = json.loads((ROOT / "boards.json").read_text())
+# Team nicknames: {"Canada": {"948 Princess": ["Princess"]}}. Taken as definite matches.
+PROPERTY_ALIASES = json.loads((ROOT / "property_aliases.json").read_text())
 
 COUNTRIES = ("USA", "Canada")
 

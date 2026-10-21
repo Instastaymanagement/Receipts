@@ -1,0 +1,9 @@
+{
+  "_comment": "Team nicknames for properties, used in posts, file names and POs. Key = property name exactly as in Properties Master. A nickname here is treated as a definite match.",
+  "USA": {},
+  "Canada": {
+    "948 Princess": ["Princess"],
+    "1009 Thistledown Way": ["Thistledown"],
+    "600 Sarnia Rd": ["Sarnia"]
+  }
+}

@@ -24,6 +24,7 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
   - Neither matches, or they point to different properties: ⚠️ in Slack.
 - The address it reads is the one printed on the receipt (Amazon "Ship to", utility "Service address", contractor job site) and matches it against the addresses in Properties Master. It never uses the store's own address. Several units share one street address (e.g. 16 Alton, 33 Oakland, 5211 Wilkins, 10 Wait, 187 Winthrop, 7902 Tysons One Pl, 306 Spruce, 948 Princess). For those it needs the unit, from the receipt or the message, or it asks.
 - To re-check ⚠️ posts without replying to each one, run the workflow manually with **Retry ⚠️ posts** ticked.
+- **Nicknames:** add the team's own names for a property (e.g. "Princess" = 948 Princess) to `property_aliases.json`. The bot then treats them as a definite match.
 - Several photos of the same receipt in one post are fine. So are several different receipts in one post.
 - For costs that aren't tied to one property, write `Property: Overhead USA` or `Property: Overhead Canada`.
 - After the nightly run, the bot replies in the thread:
@@ -102,4 +103,5 @@ pytest -q
 - `receipt_bot/config.py`: column IDs, account and category labels
 - `receipt_bot/boards.py`: finds or creates each month's board
 - `boards.json`: template boards, folders, and older boards
+- `property_aliases.json`: team nicknames for properties
 - `.github/workflows/receipts.yml`: cron schedule
