@@ -1,6 +1,6 @@
 # Receipts bot
 
-Every night at **9 pm Toronto time**, this reads new receipts posted in the Slack receipts channel and enters them on the monthly expense board in **USA Automated** or **Canada Automated** on Monday.com.
+Every night at **9 pm Toronto time**, this reads new receipts posted in the Slack receipts channel and enters them on the monthly expense board in the **USA** or **Canada** folder of **Instastay Automated** on Monday.com.
 
 ```
 Slack #expense-receipts ──► GitHub Actions (nightly) ──► Claude reads each receipt
