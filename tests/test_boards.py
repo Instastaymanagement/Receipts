@@ -49,9 +49,9 @@ def test_creates_missing_month_and_renames_group():
     m = FakeMonday()
     mgr = BoardManager(m)
     assert mgr.board_for("USA", "2026-12", date(2026, 12, 3)) == 999
-    assert m.duplicated == ["Expenses 2026-12 · December"]
+    assert m.duplicated == ["December"]
     assert m.renamed == ["December 2026"]
-    assert mgr.created == ["USA: Expenses 2026-12 · December"]
+    assert mgr.created == ["USA: December"]
     assert mgr.board_for("USA", "2026-12", date(2026, 12, 3)) == 999  # cached, not created twice
     assert len(m.duplicated) == 1
 
@@ -69,7 +69,7 @@ def test_ensure_upcoming_creates_next_month_from_25th():
     BoardManager(m).ensure_upcoming(date(2026, 11, 20))
     assert m.duplicated == []  # November boards exist already
     BoardManager(m).ensure_upcoming(date(2026, 11, 26))
-    assert m.duplicated == ["Expenses 2026-12 · December"] * 2  # USA and Canada
+    assert m.duplicated == ["December"] * 2  # USA and Canada
 
 
 def test_finds_renamed_board():

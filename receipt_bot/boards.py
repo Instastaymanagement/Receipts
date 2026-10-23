@@ -1,8 +1,8 @@
 """Find (or create) the monthly expense board for a country.
 
 New boards are copies of the country's template board (structure only), named
-"Expenses YYYY-MM · Month" and placed in the expenses folder, so nobody has to
-create boards or edit IDs by hand.
+just "Month" (e.g. "December", matching the boards the owner renamed) and placed in
+the expenses folder, so nobody has to create boards or edit IDs by hand.
 """
 
 from datetime import date, datetime
@@ -75,7 +75,7 @@ class BoardManager:
 
     def _create(self, country: str, month: str) -> int:
         cfg = BOARDS[country]
-        name = board_name(month)
+        name = f"{date.fromisoformat(month + '-01'):%B}"
         group_title = f"{date.fromisoformat(month + '-01'):%B %Y}"
         if self.dry_run:
             print(f"[dry-run] would create {country} board '{name}' from template {cfg['template_board']}")
