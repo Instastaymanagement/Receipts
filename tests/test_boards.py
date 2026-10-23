@@ -70,3 +70,12 @@ def test_ensure_upcoming_creates_next_month_from_25th():
     assert m.duplicated == []  # November boards exist already
     BoardManager(m).ensure_upcoming(date(2026, 11, 26))
     assert m.duplicated == ["Expenses 2026-12 · December"] * 2  # USA and Canada
+
+
+def test_finds_renamed_board():
+    from receipt_bot.config import BOARDS
+    folder = BOARDS["Canada"]["expenses_folder_id"]
+    fake = FakeMonday([{"id": "555", "name": "December", "board_folder_id": folder}])
+    bm = BoardManager(fake)
+    assert bm._lookup("Canada", "2026-12") == 555
+    assert fake.duplicated == []

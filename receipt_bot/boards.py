@@ -42,9 +42,12 @@ class BoardManager:
             return cfg["existing_boards"][month]
         if country not in self._workspace_boards:
             self._workspace_boards[country] = self.monday.workspace_boards(cfg["workspace_id"])
-        name = board_name(month)
+        # Boards may have been renamed in monday, e.g. "Expenses 2026-12 · December" → "December 2026" or
+        # "December"; accept those too so a rename never makes the bot create a second board for the month.
+        d = date.fromisoformat(month + "-01")
+        names = {board_name(month), f"{d:%B %Y}", f"{d:%B}"}
         for b in self._workspace_boards[country]:
-            if b["name"] == name and str(b.get("board_folder_id")) == str(cfg["expenses_folder_id"]):
+            if b["name"] in names and str(b.get("board_folder_id")) == str(cfg["expenses_folder_id"]):
                 return int(b["id"])
         return None
 
