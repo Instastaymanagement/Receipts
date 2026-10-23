@@ -22,6 +22,9 @@ class FakeMonday:
     def rename_group(self, board_id, group_id, title):
         self.renamed.append(title)
 
+    def move_to_top(self, board_id, folder_id):
+        self.moved_to_top = getattr(self, "moved_to_top", []) + [board_id]
+
 
 def test_names():
     assert board_name("2026-12") == "Expenses 2026-12 · December"

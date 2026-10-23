@@ -80,6 +80,7 @@ class BoardManager:
         board_id = self.monday.duplicate_board(cfg["template_board"], name, cfg["workspace_id"], cfg["expenses_folder_id"])
         for group in self.monday.board_groups(board_id):
             self.monday.rename_group(board_id, group["id"], group_title)
+        self.monday.move_to_top(board_id, cfg["expenses_folder_id"])
         self._workspace_boards.setdefault(country, []).append(
             {"id": board_id, "name": name, "board_folder_id": cfg["expenses_folder_id"]})
         self.created.append(f"{country}: {name}")

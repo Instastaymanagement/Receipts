@@ -116,6 +116,21 @@ class Monday:
         )
         return int(data["duplicate_board"]["board"]["id"])
 
+    def move_to_top(self, board_id: int, folder_id: int) -> None:
+        """Puts a board first in its folder, so folders list the newest month at the top."""
+        folders = self._gql("query ($f: [ID!]) { folders(ids: $f) { children { id name } } }", {"f": [folder_id]})["folders"]
+        children = folders[0]["children"] if folders else []
+        first = next((b for b in children
+                      if int(b["id"]) != board_id and not b["name"].startswith("Subitems of")), None)
+        if first is None:
+            return
+        self._gql(
+            """mutation ($b: ID!, $o: ID!) {
+                 update_board_hierarchy(board_id: $b, attributes: { position: { object_id: $o, object_type: Board, is_after: false } }) { success }
+               }""",
+            {"b": board_id, "o": first["id"]},
+        )
+
     def rename_group(self, board_id: int, group_id: str, title: str) -> None:
         self._gql(
             """mutation ($b: ID!, $g: String!, $t: String!) {
