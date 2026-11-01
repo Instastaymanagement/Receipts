@@ -13,7 +13,7 @@ from .config import (
 )
 from .boards import BoardManager
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
-from .matching import already_logged, booking_month, find_statement_match, resolve_account, resolve_property
+from .matching import already_logged, booking_month, find_duplicate, find_statement_match, resolve_account, resolve_property
 from .monday_api import Monday
 from .schedule import should_run
 from .slack_api import Slack
@@ -247,6 +247,11 @@ class Runner:
         )
 
         match = find_statement_match(items, r.total, when, account, any_date=moved)
+        if not match and not r.not_duplicate:
+            dup = find_duplicate(items, r.total, when, prop["name"] if prop else None)
+            if dup:
+                raise Problem(f"This looks like the same bill already logged from another post ({when:%b %d}, ${r.total:,.2f}): "
+                              f"{item_url(board_id, dup['id'])}\nIf it's a separate charge, reply \"not a duplicate\" and I'll log it.")
         if match:
             cols = match["cols"]
             update = {
@@ -286,7 +291,8 @@ class Runner:
             item_id = self.monday.create_item(board_id, r.vendor or "Receipt", values)
             items.append({"id": item_id, "name": r.vendor, "cols": {
                 COL["statement_ref"]: {"text": ref}, COL["notes"]: {"text": note},
-                COL["receipt_status"]: {"text": "Uploaded"},
+                COL["receipt_status"]: {"text": "Uploaded"}, COL["amount"]: {"text": f"{r.total:.2f}"},
+                COL["date"]: {"text": when.isoformat()}, COL["property"]: {"text": prop["name"] if prop else ""},
             }})
             self.stats.logged[country] += 1
             verb = f"Logged to {country}"

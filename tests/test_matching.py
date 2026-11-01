@@ -95,3 +95,20 @@ def test_paid_month_match_ignores_date_window():
     items = [item("a", "120.00", "2026-10-20")]
     assert find_statement_match(items, 120.0, date(2026, 8, 14), None) is None
     assert find_statement_match(items, 120.0, date(2026, 8, 14), None, any_date=True)["id"] == "a"
+
+
+from receipt_bot.matching import find_duplicate
+
+
+def dup_item(id, amount, when, prop="", ref="slack:1.2:0"):
+    it = item(id, amount, when, receipt="Uploaded", ref=ref)
+    it["cols"]["property"] = {"text": prop}
+    return it
+
+
+def test_duplicate_same_bill_posted_twice():
+    items = [dup_item("a", "84.12", "2026-09-22", "Nottinghill")]
+    assert find_duplicate(items, 84.12, date(2026, 9, 22), "Nottinghill")["id"] == "a"
+    assert find_duplicate(items, 84.12, date(2026, 9, 22), "Walsh") is None
+    assert find_duplicate(items, 84.12, date(2026, 9, 23), "Nottinghill") is None
+    assert find_duplicate([dup_item("b", "84.12", "2026-09-22", ref="")], 84.12, date(2026, 9, 22), None) is None

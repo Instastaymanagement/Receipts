@@ -38,6 +38,7 @@ class Receipt(BaseModel):
     label_property_id: str | None = Field(description="Property that label_text refers to, matched to the list. Null if label_text is null or matches no listed property.")
     receipt_address: str | None = Field(description="Ship-to, delivery, service or job-site address printed on the receipt (NOT the store's or vendor's own address). Null if none.")
     address_property_id: str | None = Field(description="Property whose address matches receipt_address. Null if there's no address or it isn't a listed property address.")
+    not_duplicate: bool = Field(description="True only if the post or a thread reply says this is NOT a duplicate / is a separate charge / should be logged anyway.")
     is_overhead: bool = Field(description="True if the post says it is a company / overhead / shared cost rather than one property.")
     account: str | None = Field(description="Exact account label from the country's list if the post or card digits identify it, else null.")
     category: str = Field(description="Exact category label from the list.")

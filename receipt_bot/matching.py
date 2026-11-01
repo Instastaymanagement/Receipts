@@ -53,6 +53,27 @@ def booking_month(receipt_date: date, paid_month: str | None) -> tuple[str, bool
     return own, False
 
 
+def find_duplicate(items: list[dict], total: float, when: date, property_name: str | None) -> dict | None:
+    """A receipt already logged from another Slack post for the same amount, date and property
+    (e.g. the same bill posted twice)."""
+    for item in items:
+        cols = item["cols"]
+        if cols.get(COL["receipt_status"], {}).get("text") != "Uploaded":
+            continue
+        if not cols.get(COL["statement_ref"], {}).get("text", "").startswith("slack:"):
+            continue
+        amount = _amount(cols.get(COL["amount"], {}).get("text", ""))
+        if amount is None or abs(amount - total) > 0.01:
+            continue
+        if _parse_date(cols.get(COL["date"], {}).get("text", "")) != when:
+            continue
+        item_prop = cols.get(COL["property"], {}).get("text", "")
+        if property_name and item_prop and item_prop != property_name:
+            continue
+        return item
+    return None
+
+
 def find_statement_match(items: list[dict], total: float, when: date, account: str | None,
                          any_date: bool = False) -> dict | None:
     """An existing line (e.g. from a card statement import) for the same charge that has no receipt yet.
