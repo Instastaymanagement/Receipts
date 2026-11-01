@@ -76,3 +76,22 @@ def test_nothing_matches_tells_slack():
 
 def test_unknown_ids_ignored():
     assert resolve_property(IDS, "bogus", None, "sarnia")[0] == "sarnia"
+
+
+from receipt_bot.matching import booking_month
+
+
+def test_booking_month_defaults_to_receipt_month():
+    assert booking_month(date(2026, 8, 14), None) == ("2026-08", False)
+
+
+def test_booking_month_paid_in_override():
+    assert booking_month(date(2026, 8, 14), "2026-10") == ("2026-10", True)
+    assert booking_month(date(2026, 10, 2), "2026-10") == ("2026-10", False)
+    assert booking_month(date(2026, 8, 14), "October") == ("2026-08", False)  # unparseable: ignore
+
+
+def test_paid_month_match_ignores_date_window():
+    items = [item("a", "120.00", "2026-10-20")]
+    assert find_statement_match(items, 120.0, date(2026, 8, 14), None) is None
+    assert find_statement_match(items, 120.0, date(2026, 8, 14), None, any_date=True)["id"] == "a"

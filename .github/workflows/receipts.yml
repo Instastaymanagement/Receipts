@@ -16,6 +16,10 @@ on:
         description: "Re-check all ⚠️ posts from the last 7 days, even without a thread reply"
         type: boolean
         default: false
+      lookback_days:
+        description: "How many days of Slack posts to check (raise it to pick up replies on older posts)"
+        type: number
+        default: 7
 
 concurrency:
   group: receipts
@@ -39,6 +43,7 @@ jobs:
           SCHEDULE: ${{ github.event.schedule }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           RETRY_WARNINGS: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_warnings || 'false' }}
+          LOOKBACK_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.lookback_days || '7' }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
           MONDAY_API_TOKEN: ${{ secrets.MONDAY_API_TOKEN }}

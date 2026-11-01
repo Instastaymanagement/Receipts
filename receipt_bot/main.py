@@ -13,7 +13,7 @@ from .config import (
 )
 from .boards import BoardManager
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
-from .matching import already_logged, find_statement_match, resolve_account, resolve_property
+from .matching import already_logged, booking_month, find_statement_match, resolve_account, resolve_property
 from .monday_api import Monday
 from .schedule import should_run
 from .slack_api import Slack
@@ -196,11 +196,19 @@ class Runner:
             except ValueError:
                 pass
 
-        month = when.strftime("%Y-%m")
+        # Default: the receipt's own month. "Paid in <month>" in the thread moves it to that month's board.
+        month, moved = booking_month(when, r.paid_month)
+        month_label = f"{date.fromisoformat(month + '-01'):%B %Y}"
         board_id = self.boards.board_for(country, month)
         if not board_id:
+            if moved:
+                raise Problem(f"You said this was paid in {month_label}, but there's no {country} expense board for that month "
+                              f"(boards are only kept from {BOARDS['first_month']} on). Reply with the right month.")
             raise Problem(f"The date reads {when:%b %d, %Y}, and there's no {country} expense board for that month "
-                          f"(boards are only kept from {BOARDS['first_month']} on). If the date is wrong, reply with the correct one.")
+                          f"(boards are only kept from {BOARDS['first_month']} on). If the date is wrong, reply with the "
+                          f"correct one, or if it was paid in a later month, reply e.g. \"paid in October\".")
+        if moved:
+            date_note += f" (paid in {month_label} per Slack thread)"
 
         items = self.items(board_id)
         done = already_logged(items, ref)
@@ -227,6 +235,7 @@ class Runner:
             + (f" File name/PO: {r.label_text}." if r.label_text else "")
             + (f" Shipped to: {r.receipt_address}." if r.receipt_address else "")
             + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
+            + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid in {month_label} per Slack thread." if moved else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
@@ -237,7 +246,7 @@ class Runner:
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"
         )
 
-        match = find_statement_match(items, r.total, when, account)
+        match = find_statement_match(items, r.total, when, account, any_date=moved)
         if match:
             cols = match["cols"]
             update = {
@@ -260,7 +269,7 @@ class Runner:
                 COL["date"]: {"date": when.isoformat()},
                 COL["amount"]: f"{r.total:.2f}",
                 COL["billable"]: {"label": "Unsure"},
-                COL["report_month"]: {"labels": [when.strftime("%B %Y")]},
+                COL["report_month"]: {"labels": [month_label]},
                 COL["receipt_status"]: {"label": "Uploaded"},
                 COL["review_status"]: {"label": "New"},
                 COL["statement_ref"]: ref,
