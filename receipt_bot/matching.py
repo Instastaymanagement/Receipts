@@ -33,9 +33,32 @@ def _amount(text: str) -> float | None:
 def already_logged(items: list[dict], ref: str) -> dict | None:
     for item in items:
         cols = item["cols"]
-        if cols.get(COL["statement_ref"], {}).get("text") == ref or ref in cols.get(COL["notes"], {}).get("text", ""):
+        if cols.get(COL["statement_ref"], {}).get("text") == ref or f"({ref})" in cols.get(COL["notes"], {}).get("text", ""):
             return item
     return None
+
+
+def split_logged(items: list[dict], base_ref: str, total: float) -> tuple[dict | None, str]:
+    """For one file entered as several lines (base_ref, base_ref#1, ...): the line already logged
+    with this amount, else None and the first free ref. Matching on amount keeps it right whatever
+    order Claude returns the parts in."""
+    used = set()
+    for item in items:
+        cols = item["cols"]
+        refs = {cols.get(COL["statement_ref"], {}).get("text", "")}
+        notes = cols.get(COL["notes"], {}).get("text", "")
+        refs |= {w.strip("()") for w in notes.split() if w.strip("()").startswith(base_ref)}
+        family = {x for x in refs if x == base_ref or x.startswith(base_ref + "#")}
+        if not family:
+            continue
+        amount = _amount(cols.get(COL["amount"], {}).get("text", ""))
+        if amount is not None and abs(amount - total) <= 0.01:
+            return item, base_ref
+        used |= family
+    n = 0
+    while (base_ref if n == 0 else f"{base_ref}#{n}") in used:
+        n += 1
+    return None, base_ref if n == 0 else f"{base_ref}#{n}"
 
 
 def booking_month(receipt_date: date, paid_month: str | None) -> tuple[str, bool]:

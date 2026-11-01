@@ -13,7 +13,7 @@ from .config import (
 )
 from .boards import BoardManager
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
-from .matching import already_logged, booking_month, find_duplicate, find_statement_match, resolve_account, resolve_property
+from .matching import already_logged, booking_month, split_logged, find_duplicate, find_statement_match, resolve_account, resolve_property
 from .monday_api import Monday
 from .schedule import should_run
 from .slack_api import Slack
@@ -21,6 +21,9 @@ from .slack_api import Slack
 TZ = ZoneInfo(TIMEZONE)
 # Manual runs can re-check every ⚠️ post (e.g. after the matching rules change).
 RETRY_WARNINGS = os.environ.get("RETRY_WARNINGS", "").lower() in ("1", "true", "yes")
+# Manual runs can re-check specific ✅ posts (Slack message timestamps, comma separated).
+# Receipts already on Monday are skipped, so only missing ones get added.
+RECHECK = {t.strip() for t in os.environ.get("RECHECK_POSTS", "").split(",") if t.strip()}
 
 
 @dataclass
@@ -117,7 +120,7 @@ class Runner:
             if msg.get("bot_id") or msg.get("user") == self.slack.bot_user_id or not msg.get("files"):
                 continue
             reacted = {r["name"]: r.get("users", []) for r in msg.get("reactions", [])}
-            if self.slack.bot_user_id in reacted.get(DONE_REACTION, []):
+            if self.slack.bot_user_id in reacted.get(DONE_REACTION, []) and msg["ts"] not in RECHECK:
                 continue
             warned = self.slack.bot_user_id in reacted.get(WARN_REACTION, [])
             try:
@@ -150,12 +153,15 @@ class Runner:
             if not extraction.receipts:
                 problems.append("I couldn't find a receipt in the attachment.")
             permalink = self.slack.permalink(self.channel, ts)
-            for receipt in extraction.receipts:
-                # Map Claude's indexes (into the readable list) back to the post's files.
-                idx = [readable[i][0] for i in receipt.file_indexes if 0 <= i < len(readable)] or [i for i, _ in readable]
+            # Map Claude's indexes (into the readable list) back to the post's files.
+            indexes = [[readable[i][0] for i in r.file_indexes if 0 <= i < len(readable)] or [i for i, _ in readable]
+                       for r in extraction.receipts]
+            refs = [f"slack:{ts}:{'-'.join(map(str, idx))}" for idx in indexes]
+            for receipt, idx, ref in zip(extraction.receipts, indexes, refs):
                 try:
-                    lines.append(self.log_receipt(receipt, [files[i] for i in idx], f"slack:{ts}:{'-'.join(map(str, idx))}",
-                                                  posted.date(), poster, text, permalink))
+                    # split: one file entered as several lines (e.g. a bill shared by two properties).
+                    lines.append(self.log_receipt(receipt, [files[i] for i in idx], ref,
+                                                  posted.date(), poster, text, permalink, split=refs.count(ref) > 1))
                 except Problem as p:
                     problems.append(f"*{receipt.vendor or 'Receipt'}*: {p}")
 
@@ -170,13 +176,16 @@ class Runner:
             self.slack.reply(self.channel, ts, reply)
             self.slack.react(self.channel, ts, WARN_REACTION)
         else:
+            if not lines and ts in RECHECK and not warned:
+                print(f"Re-checked, nothing missing: {ts}")
+                return
             self.slack.reply(self.channel, ts, "\n".join(lines) or ":white_check_mark: All receipts in this post are now logged.")
             self.slack.react(self.channel, ts, DONE_REACTION)
             if warned:
                 self.slack.unreact(self.channel, ts, WARN_REACTION)
 
     def log_receipt(self, r: Receipt, files: list[SlackFile], ref: str, posted: date,
-                    poster: str, text: str, permalink: str) -> str | None:
+                    poster: str, text: str, permalink: str, split: bool = False) -> str | None:
         if not r.readable or r.total is None:
             raise Problem(r.problem or "I couldn't read the total on this receipt. Please post a clearer photo.")
 
@@ -213,7 +222,10 @@ class Runner:
             date_note += f" (paid in {month_label} per Slack thread)"
 
         items = self.items(board_id)
-        done = already_logged(items, ref)
+        if split:
+            done, ref = split_logged(items, ref, r.total)
+        else:
+            done = already_logged(items, ref)
         if done:
             return None
 

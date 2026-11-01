@@ -112,3 +112,22 @@ def test_duplicate_same_bill_posted_twice():
     assert find_duplicate(items, 84.12, date(2026, 9, 22), "Walsh") is None
     assert find_duplicate(items, 84.12, date(2026, 9, 23), "Nottinghill") is None
     assert find_duplicate([dup_item("b", "84.12", "2026-09-22", ref="")], 84.12, date(2026, 9, 22), None) is None
+
+
+from receipt_bot.matching import split_logged
+
+
+def test_split_bill_logs_each_part_once_in_any_order():
+    items = [item("a", "62.15", "2026-10-10", ref="slack:9.9:0")]
+    # The Walsh part is missing: it gets its own ref, whichever order the parts come back in.
+    assert split_logged(items, "slack:9.9:0", 50.85) == (None, "slack:9.9:0#1")
+    assert split_logged(items, "slack:9.9:0", 62.15)[0]["id"] == "a"
+    items.append(item("b", "50.85", "2026-10-10", ref="slack:9.9:0#1"))
+    assert split_logged(items, "slack:9.9:0", 50.85)[0]["id"] == "b"
+    assert split_logged(items, "slack:9.9:00", 1.0) == (None, "slack:9.9:00")
+
+
+def test_split_found_through_notes_when_attached_to_statement_line():
+    items = [item("a", "62.15", "2026-10-10", ref="AMEX-123", notes="From Slack (slack:9.9:0) by Ivy")]
+    assert split_logged(items, "slack:9.9:0", 62.15)[0]["id"] == "a"
+    assert split_logged(items, "slack:9.9:0", 50.85) == (None, "slack:9.9:0#1")

@@ -20,6 +20,10 @@ on:
         description: "How many days of Slack posts to check (raise it to pick up replies on older posts)"
         type: number
         default: 7
+      recheck_posts:
+        description: "Re-check these ✅ posts (Slack message timestamps, comma separated); only missing receipts are added"
+        type: string
+        default: ""
 
 concurrency:
   group: receipts
@@ -43,6 +47,7 @@ jobs:
           SCHEDULE: ${{ github.event.schedule }}
           DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run || 'false' }}
           RETRY_WARNINGS: ${{ github.event_name == 'workflow_dispatch' && inputs.retry_warnings || 'false' }}
+          RECHECK_POSTS: ${{ github.event_name == 'workflow_dispatch' && inputs.recheck_posts || '' }}
           LOOKBACK_DAYS: ${{ github.event_name == 'workflow_dispatch' && inputs.lookback_days || '7' }}
           SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
           SLACK_CHANNEL_ID: ${{ vars.SLACK_CHANNEL_ID }}
