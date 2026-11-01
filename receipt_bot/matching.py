@@ -33,13 +33,77 @@ def _amount(text: str) -> float | None:
 def already_logged(items: list[dict], ref: str) -> dict | None:
     for item in items:
         cols = item["cols"]
-        if cols.get(COL["statement_ref"], {}).get("text") == ref or ref in cols.get(COL["notes"], {}).get("text", ""):
+        if cols.get(COL["statement_ref"], {}).get("text") == ref or f"({ref})" in cols.get(COL["notes"], {}).get("text", ""):
             return item
     return None
 
 
-def find_statement_match(items: list[dict], total: float, when: date, account: str | None) -> dict | None:
-    """An existing line (e.g. from a card statement import) for the same charge that has no receipt yet."""
+def split_logged(items: list[dict], base_ref: str, total: float) -> tuple[dict | None, str]:
+    """For one file entered as several lines (base_ref, base_ref#1, ...): the line already logged
+    with this amount, else None and the first free ref. Matching on amount keeps it right whatever
+    order Claude returns the parts in."""
+    used = set()
+    for item in items:
+        cols = item["cols"]
+        refs = {cols.get(COL["statement_ref"], {}).get("text", "")}
+        notes = cols.get(COL["notes"], {}).get("text", "")
+        refs |= {w.strip("()") for w in notes.split() if w.strip("()").startswith(base_ref)}
+        family = {x for x in refs if x == base_ref or x.startswith(base_ref + "#")}
+        if not family:
+            continue
+        amount = _amount(cols.get(COL["amount"], {}).get("text", ""))
+        if amount is not None and abs(amount - total) <= 0.01:
+            return item, base_ref
+        used |= family
+    n = 0
+    while (base_ref if n == 0 else f"{base_ref}#{n}") in used:
+        n += 1
+    return None, base_ref if n == 0 else f"{base_ref}#{n}"
+
+
+def booking_month(receipt_date: date, paid_month: str | None) -> tuple[str, bool]:
+    """Month whose board the receipt goes on, and whether a "paid in <month>" instruction moved it.
+
+    Default is the receipt's own month. An explicit paid month from the Slack thread overrides it.
+    """
+    own = receipt_date.strftime("%Y-%m")
+    if paid_month:
+        try:
+            month = date.fromisoformat(paid_month.strip()[:7] + "-01").strftime("%Y-%m")
+        except ValueError:
+            return own, False
+        return month, month != own
+    return own, False
+
+
+def find_duplicate(items: list[dict], total: float, when: date, property_name: str | None) -> dict | None:
+    """A receipt already logged from another Slack post for the same amount, date and property
+    (e.g. the same bill posted twice)."""
+    for item in items:
+        cols = item["cols"]
+        if cols.get(COL["receipt_status"], {}).get("text") != "Uploaded":
+            continue
+        if not cols.get(COL["statement_ref"], {}).get("text", "").startswith("slack:"):
+            continue
+        amount = _amount(cols.get(COL["amount"], {}).get("text", ""))
+        if amount is None or abs(amount - total) > 0.01:
+            continue
+        if _parse_date(cols.get(COL["date"], {}).get("text", "")) != when:
+            continue
+        item_prop = cols.get(COL["property"], {}).get("text", "")
+        if property_name and item_prop and item_prop != property_name:
+            continue
+        return item
+    return None
+
+
+def find_statement_match(items: list[dict], total: float, when: date, account: str | None,
+                         any_date: bool = False) -> dict | None:
+    """An existing line (e.g. from a card statement import) for the same charge that has no receipt yet.
+
+    any_date: the receipt was booked to the month it was paid in, so the statement line can be
+    dated anywhere on that month's board rather than near the receipt date.
+    """
     best, best_gap = None, None
     for item in items:
         cols = item["cols"]
@@ -52,7 +116,7 @@ def find_statement_match(items: list[dict], total: float, when: date, account: s
         if item_date is None:
             continue
         gap = abs((item_date - when).days)
-        if gap > MATCH_DATE_WINDOW_DAYS:
+        if gap > MATCH_DATE_WINDOW_DAYS and not any_date:
             continue
         item_account = cols.get(COL["account"], {}).get("text", "")
         if account and item_account and item_account != account:

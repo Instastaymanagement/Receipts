@@ -27,6 +27,7 @@ class Receipt(BaseModel):
     description: str = Field(description="Short summary of what was bought, e.g. 'Hallway rug and rug pad'.")
     line_items: list[LineItem] = Field(description="Every individual item on the receipt, in order. Do not skip or group items. Leave out tax, totals, payment and discount-only lines.")
     receipt_date: str | None = Field(description="Purchase date as YYYY-MM-DD, or null if not shown.")
+    paid_month: str | None = Field(description="YYYY-MM, ONLY if the Slack post or a thread reply explicitly says this receipt was paid in / belongs to / should be booked under a specific month (e.g. 'these were paid in October'). Null otherwise; never derive it from the receipt date.")
     total: float | None = Field(description="Grand total actually charged, including tax and tip. Positive number.")
     tax: float | None = Field(description="Sales tax / HST included in the total. 0 if none shown, null if unclear.")
     currency: Literal["USD", "CAD", "OTHER"] | None
@@ -37,6 +38,7 @@ class Receipt(BaseModel):
     label_property_id: str | None = Field(description="Property that label_text refers to, matched to the list. Null if label_text is null or matches no listed property.")
     receipt_address: str | None = Field(description="Ship-to, delivery, service or job-site address printed on the receipt (NOT the store's or vendor's own address). Null if none.")
     address_property_id: str | None = Field(description="Property whose address matches receipt_address. Null if there's no address or it isn't a listed property address.")
+    not_duplicate: bool = Field(description="True only if the post or a thread reply says this is NOT a duplicate / is a separate charge / should be logged anyway.")
     is_overhead: bool = Field(description="True if the post says it is a company / overhead / shared cost rather than one property.")
     account: str | None = Field(description="Exact account label from the country's list if the post or card digits identify it, else null.")
     category: str = Field(description="Exact category label from the list.")
@@ -63,6 +65,7 @@ Rules:
 - `problem` is for things the team must fix or check. Don't use it to report that a shipping address isn't a listed property (that's normal); only mention property matching there when a unit is ambiguous or the sources contradict each other.
 - Account: only choose from the account list for the property's country. Match on what the message says (e.g. "amex 1007", "BMO", "cash") or the card's last 4 digits. Otherwise null; don't guess.
 - Category: pick the single best label from the category list for the property's country.
+- Month: by default the expense goes to the month of the receipt date, so leave paid_month null. Only when the post or a thread reply explicitly says the receipt was paid in (or belongs to / should go under) a particular month, set paid_month to that month as YYYY-MM, and keep receipt_date as the date printed on the receipt. If a reply names a month without a year, use the most recent such month on or before the post date. If a reply says it applies to all the receipts in the post ("these", "all of these"), set it on every entry.
 - Amounts: total is the final amount charged. Tax is sales tax / HST / GST included in that total.
 - If a receipt is unreadable, isn't a receipt, still return an entry with readable/property set accordingly and a clear one-line `problem` the poster can act on."""
 

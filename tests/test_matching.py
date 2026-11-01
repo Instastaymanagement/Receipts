@@ -76,3 +76,58 @@ def test_nothing_matches_tells_slack():
 
 def test_unknown_ids_ignored():
     assert resolve_property(IDS, "bogus", None, "sarnia")[0] == "sarnia"
+
+
+from receipt_bot.matching import booking_month
+
+
+def test_booking_month_defaults_to_receipt_month():
+    assert booking_month(date(2026, 8, 14), None) == ("2026-08", False)
+
+
+def test_booking_month_paid_in_override():
+    assert booking_month(date(2026, 8, 14), "2026-10") == ("2026-10", True)
+    assert booking_month(date(2026, 10, 2), "2026-10") == ("2026-10", False)
+    assert booking_month(date(2026, 8, 14), "October") == ("2026-08", False)  # unparseable: ignore
+
+
+def test_paid_month_match_ignores_date_window():
+    items = [item("a", "120.00", "2026-10-20")]
+    assert find_statement_match(items, 120.0, date(2026, 8, 14), None) is None
+    assert find_statement_match(items, 120.0, date(2026, 8, 14), None, any_date=True)["id"] == "a"
+
+
+from receipt_bot.matching import find_duplicate
+
+
+def dup_item(id, amount, when, prop="", ref="slack:1.2:0"):
+    it = item(id, amount, when, receipt="Uploaded", ref=ref)
+    it["cols"]["property"] = {"text": prop}
+    return it
+
+
+def test_duplicate_same_bill_posted_twice():
+    items = [dup_item("a", "84.12", "2026-09-22", "Nottinghill")]
+    assert find_duplicate(items, 84.12, date(2026, 9, 22), "Nottinghill")["id"] == "a"
+    assert find_duplicate(items, 84.12, date(2026, 9, 22), "Walsh") is None
+    assert find_duplicate(items, 84.12, date(2026, 9, 23), "Nottinghill") is None
+    assert find_duplicate([dup_item("b", "84.12", "2026-09-22", ref="")], 84.12, date(2026, 9, 22), None) is None
+
+
+from receipt_bot.matching import split_logged
+
+
+def test_split_bill_logs_each_part_once_in_any_order():
+    items = [item("a", "62.15", "2026-10-10", ref="slack:9.9:0")]
+    # The Walsh part is missing: it gets its own ref, whichever order the parts come back in.
+    assert split_logged(items, "slack:9.9:0", 50.85) == (None, "slack:9.9:0#1")
+    assert split_logged(items, "slack:9.9:0", 62.15)[0]["id"] == "a"
+    items.append(item("b", "50.85", "2026-10-10", ref="slack:9.9:0#1"))
+    assert split_logged(items, "slack:9.9:0", 50.85)[0]["id"] == "b"
+    assert split_logged(items, "slack:9.9:00", 1.0) == (None, "slack:9.9:00")
+
+
+def test_split_found_through_notes_when_attached_to_statement_line():
+    items = [item("a", "62.15", "2026-10-10", ref="AMEX-123", notes="From Slack (slack:9.9:0) by Ivy")]
+    assert split_logged(items, "slack:9.9:0", 62.15)[0]["id"] == "a"
+    assert split_logged(items, "slack:9.9:0", 50.85) == (None, "slack:9.9:0#1")

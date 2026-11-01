@@ -13,7 +13,7 @@ from .config import (
 )
 from .boards import BoardManager
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
-from .matching import already_logged, find_statement_match, resolve_account, resolve_property
+from .matching import already_logged, booking_month, split_logged, find_duplicate, find_statement_match, resolve_account, resolve_property
 from .monday_api import Monday
 from .schedule import should_run
 from .slack_api import Slack
@@ -21,6 +21,9 @@ from .slack_api import Slack
 TZ = ZoneInfo(TIMEZONE)
 # Manual runs can re-check every ⚠️ post (e.g. after the matching rules change).
 RETRY_WARNINGS = os.environ.get("RETRY_WARNINGS", "").lower() in ("1", "true", "yes")
+# Manual runs can re-check specific ✅ posts (Slack message timestamps, comma separated).
+# Receipts already on Monday are skipped, so only missing ones get added.
+RECHECK = {t.strip() for t in os.environ.get("RECHECK_POSTS", "").split(",") if t.strip()}
 
 
 @dataclass
@@ -68,18 +71,20 @@ def load_files(slack: Slack, msg: dict) -> list[SlackFile]:
     return files
 
 
-def thread_text(slack: Slack, channel: str, msg: dict) -> tuple[str, bool]:
-    """Post text plus human thread replies. Second value: whether there's a reply newer than the bot's last one."""
+def thread_text(slack: Slack, channel: str, msg: dict) -> tuple[str, bool, str]:
+    """Post text plus human thread replies, whether there's a reply newer than the bot's last one,
+    and the bot's last reply text."""
     text = msg.get("text", "")
     if not msg.get("reply_count"):
-        return text, False
+        return text, False, ""
     replies = slack.replies(channel, msg["ts"])
-    bot_ts = [float(r["ts"]) for r in replies if r.get("user") == slack.bot_user_id or r.get("bot_id")]
-    last_bot = max(bot_ts, default=0.0)
+    bot = [r for r in replies if r.get("user") == slack.bot_user_id or r.get("bot_id")]
+    last_bot = max(bot, key=lambda r: float(r["ts"]), default=None)
+    last_bot_ts = float(last_bot["ts"]) if last_bot else 0.0
     human = [r for r in replies if r.get("user") != slack.bot_user_id and not r.get("bot_id")]
     if human:
         text += "\n\nThread replies (newest last):\n" + "\n".join(f"- {r.get('text', '')}" for r in human)
-    return text, any(float(r["ts"]) > last_bot for r in human)
+    return text, any(float(r["ts"]) > last_bot_ts for r in human), (last_bot or {}).get("text", "")
 
 
 class Runner:
@@ -115,14 +120,14 @@ class Runner:
             if msg.get("bot_id") or msg.get("user") == self.slack.bot_user_id or not msg.get("files"):
                 continue
             reacted = {r["name"]: r.get("users", []) for r in msg.get("reactions", [])}
-            if self.slack.bot_user_id in reacted.get(DONE_REACTION, []):
+            if self.slack.bot_user_id in reacted.get(DONE_REACTION, []) and msg["ts"] not in RECHECK:
                 continue
             warned = self.slack.bot_user_id in reacted.get(WARN_REACTION, [])
             try:
-                text, has_new_reply = thread_text(self.slack, self.channel, msg)
+                text, has_new_reply, last_bot_text = thread_text(self.slack, self.channel, msg)
                 if warned and not has_new_reply and not RETRY_WARNINGS:
                     continue  # waiting for someone to reply with the fix
-                self.process(msg, text, warned, has_new_reply)
+                self.process(msg, text, warned, has_new_reply, last_bot_text)
             except Exception:
                 # Bot/API failure, not the poster's fault: no reaction, so it retries next run.
                 self.stats.errors += 1
@@ -130,7 +135,7 @@ class Runner:
                 traceback.print_exc()
         self.post_summary()
 
-    def process(self, msg: dict, text: str, warned: bool, has_new_reply: bool) -> None:
+    def process(self, msg: dict, text: str, warned: bool, has_new_reply: bool, last_bot_text: str = "") -> None:
         ts = msg["ts"]
         posted = datetime.fromtimestamp(float(ts), TZ)
         poster = self.slack.user_name(msg.get("user", ""))
@@ -148,19 +153,22 @@ class Runner:
             if not extraction.receipts:
                 problems.append("I couldn't find a receipt in the attachment.")
             permalink = self.slack.permalink(self.channel, ts)
-            for receipt in extraction.receipts:
-                # Map Claude's indexes (into the readable list) back to the post's files.
-                idx = [readable[i][0] for i in receipt.file_indexes if 0 <= i < len(readable)] or [i for i, _ in readable]
+            # Map Claude's indexes (into the readable list) back to the post's files.
+            indexes = [[readable[i][0] for i in r.file_indexes if 0 <= i < len(readable)] or [i for i, _ in readable]
+                       for r in extraction.receipts]
+            refs = [f"slack:{ts}:{'-'.join(map(str, idx))}" for idx in indexes]
+            for receipt, idx, ref in zip(extraction.receipts, indexes, refs):
                 try:
-                    lines.append(self.log_receipt(receipt, [files[i] for i in idx], f"slack:{ts}:{'-'.join(map(str, idx))}",
-                                                  posted.date(), poster, text, permalink))
+                    # split: one file entered as several lines (e.g. a bill shared by two properties).
+                    lines.append(self.log_receipt(receipt, [files[i] for i in idx], ref,
+                                                  posted.date(), poster, text, permalink, split=refs.count(ref) > 1))
                 except Problem as p:
                     problems.append(f"*{receipt.vendor or 'Receipt'}*: {p}")
 
         lines = [line for line in lines if line]  # None = logged on an earlier run
         if problems:
             self.stats.needs_attention += 1
-            if warned and not has_new_reply and not lines:
+            if warned and not has_new_reply and not lines and all(p in last_bot_text for p in problems):
                 print(f"Still needs attention, already told the thread: {ts}")
                 return  # retry run with nothing new: don't repeat the same warning
             reply = "\n".join(lines + [f":warning: {p}" for p in problems])
@@ -168,13 +176,16 @@ class Runner:
             self.slack.reply(self.channel, ts, reply)
             self.slack.react(self.channel, ts, WARN_REACTION)
         else:
+            if not lines and ts in RECHECK and not warned:
+                print(f"Re-checked, nothing missing: {ts}")
+                return
             self.slack.reply(self.channel, ts, "\n".join(lines) or ":white_check_mark: All receipts in this post are now logged.")
             self.slack.react(self.channel, ts, DONE_REACTION)
             if warned:
                 self.slack.unreact(self.channel, ts, WARN_REACTION)
 
     def log_receipt(self, r: Receipt, files: list[SlackFile], ref: str, posted: date,
-                    poster: str, text: str, permalink: str) -> str | None:
+                    poster: str, text: str, permalink: str, split: bool = False) -> str | None:
         if not r.readable or r.total is None:
             raise Problem(r.problem or "I couldn't read the total on this receipt. Please post a clearer photo.")
 
@@ -196,14 +207,25 @@ class Runner:
             except ValueError:
                 pass
 
-        month = when.strftime("%Y-%m")
+        # Default: the receipt's own month. "Paid in <month>" in the thread moves it to that month's board.
+        month, moved = booking_month(when, r.paid_month)
+        month_label = f"{date.fromisoformat(month + '-01'):%B %Y}"
         board_id = self.boards.board_for(country, month)
         if not board_id:
+            if moved:
+                raise Problem(f"You said this was paid in {month_label}, but there's no {country} expense board for that month "
+                              f"(boards are only kept from {BOARDS['first_month']} on). Reply with the right month.")
             raise Problem(f"The date reads {when:%b %d, %Y}, and there's no {country} expense board for that month "
-                          f"(boards are only kept from {BOARDS['first_month']} on). If the date is wrong, reply with the correct one.")
+                          f"(boards are only kept from {BOARDS['first_month']} on). If the date is wrong, reply with the "
+                          f"correct one, or if it was paid in a later month, reply e.g. \"paid in October\".")
+        if moved:
+            date_note += f" (paid in {month_label} per Slack thread)"
 
         items = self.items(board_id)
-        done = already_logged(items, ref)
+        if split:
+            done, ref = split_logged(items, ref, r.total)
+        else:
+            done = already_logged(items, ref)
         if done:
             return None
 
@@ -227,6 +249,7 @@ class Runner:
             + (f" File name/PO: {r.label_text}." if r.label_text else "")
             + (f" Shipped to: {r.receipt_address}." if r.receipt_address else "")
             + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
+            + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid in {month_label} per Slack thread." if moved else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
@@ -237,7 +260,12 @@ class Runner:
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"
         )
 
-        match = find_statement_match(items, r.total, when, account)
+        match = find_statement_match(items, r.total, when, account, any_date=moved)
+        if not match and not r.not_duplicate:
+            dup = find_duplicate(items, r.total, when, prop["name"] if prop else None)
+            if dup:
+                raise Problem(f"This looks like the same bill already logged from another post ({when:%b %d}, ${r.total:,.2f}): "
+                              f"{item_url(board_id, dup['id'])}\nIf it's a separate charge, reply \"not a duplicate\" and I'll log it.")
         if match:
             cols = match["cols"]
             update = {
@@ -260,7 +288,7 @@ class Runner:
                 COL["date"]: {"date": when.isoformat()},
                 COL["amount"]: f"{r.total:.2f}",
                 COL["billable"]: {"label": "Unsure"},
-                COL["report_month"]: {"labels": [when.strftime("%B %Y")]},
+                COL["report_month"]: {"labels": [month_label]},
                 COL["receipt_status"]: {"label": "Uploaded"},
                 COL["review_status"]: {"label": "New"},
                 COL["statement_ref"]: ref,
@@ -277,7 +305,8 @@ class Runner:
             item_id = self.monday.create_item(board_id, r.vendor or "Receipt", values)
             items.append({"id": item_id, "name": r.vendor, "cols": {
                 COL["statement_ref"]: {"text": ref}, COL["notes"]: {"text": note},
-                COL["receipt_status"]: {"text": "Uploaded"},
+                COL["receipt_status"]: {"text": "Uploaded"}, COL["amount"]: {"text": f"{r.total:.2f}"},
+                COL["date"]: {"text": when.isoformat()}, COL["property"]: {"text": prop["name"] if prop else ""},
             }})
             self.stats.logged[country] += 1
             verb = f"Logged to {country}"

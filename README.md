@@ -42,7 +42,7 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 | Property | Linked from Properties Master (USA/Canada) |
 | Category | Best match from the board's categories |
 | Billable to Owner | `Unsure` |
-| Owner Report Month | Month of the receipt |
+| Owner Report Month | Month of the receipt, or the month it was paid in if the thread says so |
 | Receipt / Receipt Status | File uploaded / `Uploaded` |
 | Review Status | `New` |
 | Statement Ref | `slack:<message ts>:<file #>` (prevents double entry) |
@@ -82,6 +82,10 @@ Nobody needs to create boards or edit IDs.
 - **Every run** checks that this month's expense board exists in each country's expenses folder. **From the 25th** it also checks next month's.
 - **If a board is missing**, the bot copies the country's template board (the November 2026 board), structure only. That includes the subitem Qty/Price columns. It names the copy `Expenses YYYY-MM · Month`, renames its group to `Month YYYY`, and posts a note in Slack.
 - **Each receipt goes to the board for its month.** The bot finds it by that name, creating it if needed. Boards are only created from `first_month` (October 2026) up to next month, so a misread date can't create a board for a random year.
+- **"Paid in" override.** If the post or a thread reply says the receipt was paid in a specific month (e.g. "these were paid in October"), it goes on that month's board instead, with Owner Report Month set to that month. The receipt's own date stays in the Date column, and the Notes say why it was moved. It can then match a statement line anywhere on that month's board, not only one dated near the receipt.
+- **Re-checking ✅ posts.** To make sure nothing from a ✅ post is missing, run the workflow by hand with its Slack message timestamp(s) in **recheck_posts**. Receipts already on Monday are skipped; only missing ones are added.
+- **Duplicates.** A bill with the same amount and date as one already logged from another post is flagged in the thread instead of logged. Reply "not a duplicate" to log it anyway.
+- **Replies on older posts.** The nightly run only looks at posts from the last 7 days. To pick up a thread reply on an older post, run the workflow by hand with a larger **lookback_days**.
 
 `boards.json` holds the template board, the folder IDs, and the boards made before this existed (`existing_boards`). Don't rename or delete the template boards.
 
