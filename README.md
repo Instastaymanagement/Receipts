@@ -28,7 +28,7 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 - Several photos of the same receipt in one post are fine. So are several different receipts in one post.
 - For costs that aren't tied to one property, write `Property: Overhead USA` or `Property: Overhead Canada`.
 - **Donations** (mosques, charities, sponsorships) are logged as company charity: category *Donations*, no property. No need to name one. If the receipt doesn't show the currency, the bot asks whether it's Canada or USA.
-- **Refunds** (Amazon returns, credit notes) are logged as negative amounts, so they reduce the month's expenses, and get Review Status *Needs Review* so someone checks them.
+- **Refunds** (Amazon returns, credit notes) are logged as negative amounts, so they reduce the month's expenses, and get Review Status *Needs Review* so someone checks them. If the refund's credit is on the bank statement and the purchase it refunds (same store, same account, within 90 days) is already *Matched*, the credit line is marked *Matched* too.
 - **Fuel** (Costco Gas, Petro-Canada, Esso, Shell...) is an InstaStay company expense: category *Travel & Vehicle*, no property. No need to name one. Natural gas bills (Enbridge) still go to their property.
 - After the nightly run, the bot replies in the thread:
   - **✅** The receipt was logged. The reply links to the Monday item.

@@ -10,8 +10,11 @@ import re
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from .config import BANK, BANK_ACCOUNTS, BANK_DAYS_AFTER, BANK_DAYS_BEFORE, BANK_DAYS_LATE, BANK_SETTLED, BOARDS
-from .matching import find_bank_match
+from .config import (
+    BANK, BANK_ACCOUNTS, BANK_DAYS_AFTER, BANK_DAYS_BEFORE, BANK_DAYS_LATE, BANK_REFUND_DAYS,
+    BANK_REFUND_ORIGINAL_DAYS, BANK_SETTLED, BOARDS,
+)
+from .matching import find_bank_match, find_refund_original
 from .monday_api import Monday
 
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
@@ -66,6 +69,7 @@ def _amount(text: str) -> float | None:
 class BankMatch:
     rows: list[dict]
     account: str | None  # expense Account label for the bank account that paid
+    original: dict | None = None  # for a refund: the matched purchase it gives money back on
 
     @property
     def paid(self) -> date:
@@ -75,6 +79,10 @@ class BankMatch:
     def describe(self) -> str:
         r = self.rows[0]
         acct = r["account_text"] or r["last4"]
+        if self.original:
+            o = self.original
+            return (f"{acct}: refund '{r['name']}' ${r['amount']:,.2f} on {r['date']:%b %d} (bank item {r['id']}), "
+                    f"for the purchase of ${o['amount']:,.2f} on {o['date']:%b %d} (bank item {o['id']}, already matched)")
         if len(self.rows) == 1:
             return f"{acct}: '{r['name']}' ${r['amount']:,.2f} on {r['date']:%b %d} (bank item {r['id']})"
         parts = " + ".join(f"{x['amount']:.2f}" for x in self.rows)
@@ -87,6 +95,7 @@ class BankStatements:
         self.monday = monday
         self._boards: dict[str, dict[str, int]] | None = None
         self._rows: dict[int, list[dict]] = {}
+        self._credits: dict[int, list[dict]] = {}  # Money In lines per board
         self.used: set[str] = set()  # bank lines claimed by a receipt earlier in this run
 
     def boards(self, country: str) -> dict[str, int]:
@@ -108,28 +117,69 @@ class BankStatements:
         if board_id is None:
             return []
         if board_id not in self._rows:
-            cfg = BANK[country]
-            out = []
-            for item in self.monday.board_items(board_id, [cfg["date"], cfg["account"], cfg["money_out"],
-                                                           cfg["reconciliation"], cfg["bank_status"], cfg["notes"]]):
-                cols = item["cols"]
-                amount = _amount(cols.get(cfg["money_out"], {}).get("text", ""))
-                try:
-                    when = date.fromisoformat(cols.get(cfg["date"], {}).get("text", "")[:10])
-                except ValueError:
-                    continue
-                if not amount or amount <= 0:
-                    continue
-                account_text = cols.get(cfg["account"], {}).get("text", "") or (item.get("group") or {}).get("title", "")
-                out.append({
-                    "id": item["id"], "board_id": board_id, "name": item["name"], "date": when, "amount": amount,
-                    "last4": last4(account_text), "account_text": account_text,
-                    "reconciliation": cols.get(cfg["reconciliation"], {}).get("text", ""),
-                    "posted": cols.get(cfg["bank_status"], {}).get("text", "") != "Pending",
-                    "notes": cols.get(cfg["notes"], {}).get("text", ""),
-                })
-            self._rows[board_id] = out
+            self._load(country, board_id)
         return self._rows[board_id]
+
+    def credits(self, country: str, month: str) -> list[dict]:
+        """Money In lines (refunds, deposits) on a month's bank board."""
+        board_id = self.boards(country).get(month)
+        if board_id is None:
+            return []
+        if board_id not in self._credits:
+            self._load(country, board_id)
+        return self._credits[board_id]
+
+    def _load(self, country: str, board_id: int) -> None:
+        cfg = BANK[country]
+        out, credits = [], []
+        for item in self.monday.board_items(board_id, [cfg["date"], cfg["account"], cfg["money_out"], cfg["money_in"],
+                                                       cfg["reconciliation"], cfg["bank_status"], cfg["notes"]]):
+            cols = item["cols"]
+            try:
+                when = date.fromisoformat(cols.get(cfg["date"], {}).get("text", "")[:10])
+            except ValueError:
+                continue
+            account_text = cols.get(cfg["account"], {}).get("text", "") or (item.get("group") or {}).get("title", "")
+            row = {
+                "id": item["id"], "board_id": board_id, "name": item["name"], "date": when,
+                "last4": last4(account_text), "account_text": account_text,
+                "reconciliation": cols.get(cfg["reconciliation"], {}).get("text", ""),
+                "posted": cols.get(cfg["bank_status"], {}).get("text", "") != "Pending",
+                "notes": cols.get(cfg["notes"], {}).get("text", ""),
+            }
+            money_out = _amount(cols.get(cfg["money_out"], {}).get("text", ""))
+            money_in = _amount(cols.get(cfg["money_in"], {}).get("text", ""))
+            if money_out and money_out > 0:
+                out.append({**row, "amount": money_out})
+            elif money_in and money_in > 0:
+                credits.append({**row, "amount": money_in})
+        self._rows[board_id], self._credits[board_id] = out, credits
+
+    def find_refund(self, country: str, total: float, when: date, account: str | None) -> BankMatch | None:
+        """The bank credit for a refund receipt, if its original purchase has already been matched.
+
+        The credit is the only open Money In line for this amount dated from 2 days before to
+        BANK_REFUND_DAYS after the refund receipt (on the receipt's account if known). The original is a
+        Matched purchase from the same store on the same account, for at least this amount, within
+        BANK_REFUND_ORIGINAL_DAYS before the credit. No matched original: None, so the credit stays for
+        a person to review."""
+        last4s = account_last4s(country, account)
+        if last4s is not None and not last4s:
+            return None
+        months = months_around(when, BANK_REFUND_DAYS)
+        credits = [r for m in months for r in self.credits(country, m)
+                   if r["reconciliation"] not in BANK_SETTLED and r["id"] not in self.used]
+        found = find_bank_match(credits, total, when, last4s, BANK_DAYS_BEFORE, BANK_REFUND_DAYS, strict=True)
+        if not found:
+            return None
+        credit = found[0]
+        earliest = credit["date"] - timedelta(days=BANK_REFUND_ORIGINAL_DAYS)
+        purchases = [r for m in months_around(earliest, BANK_REFUND_ORIGINAL_DAYS + BANK_REFUND_DAYS)
+                     for r in self.rows(country, m)]
+        original = find_refund_original(purchases, credit, BANK_REFUND_ORIGINAL_DAYS)
+        if not original:
+            return None
+        return BankMatch([credit], BANK_ACCOUNTS[country].get(credit["last4"]), original)
 
     def find(self, country: str, total: float, when: date, account: str | None,
              paid_month: str | None = None) -> BankMatch | None:
@@ -169,6 +219,10 @@ class BankStatements:
             if not r["posted"] or item_id == "dry-run":
                 continue
             note = f"Expense: {vendor} (board {expense_board}, item {item_id}) — matched {today:%Y-%m-%d} by the receipt bot{split}"
+            if match.original:
+                note = (f"Refund: {vendor} (board {expense_board}, item {item_id}) — matched {today:%Y-%m-%d} by the receipt bot; "
+                        f"refunds the purchase on bank item {match.original['id']} ({match.original['date']:%b %d}, "
+                        f"${match.original['amount']:,.2f}), which is already matched")
             self.monday.update_item(r["board_id"], r["id"], {
                 cfg["reconciliation"]: {"label": "Matched"},
                 cfg["notes"]: {"text": (r["notes"] + "\n" + note).strip()},

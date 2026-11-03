@@ -234,16 +234,20 @@ class Runner:
         # What the bank says: the line(s) that paid this receipt, so the account if the receipt doesn't show it,
         # and the month it was actually paid in (bills are often paid the month after).
         bank = None
-        if r.currency in (None, expected_currency) and not r.is_refund:
+        if r.currency in (None, expected_currency):
             try:
-                bank = self.bank.find(country, r.total, when, account, month if moved else None)
+                if r.is_refund:
+                    # The refund's credit line, matched only when the purchase it refunds is already matched.
+                    bank = self.bank.find_refund(country, r.total, when, account)
+                else:
+                    bank = self.bank.find(country, r.total, when, account, month if moved else None)
             except Exception:
                 print(f"Couldn't check the bank statements for {ref}:", file=sys.stderr)
                 traceback.print_exc()
         if bank and not account and bank.account:
             account = bank.account
         bank_moved = False
-        if bank and not moved and bank.paid.strftime("%Y-%m") != month:
+        if bank and not moved and not r.is_refund and bank.paid.strftime("%Y-%m") != month:
             month, bank_moved = bank.paid.strftime("%Y-%m"), True
 
         month_label = f"{date.fromisoformat(month + '-01'):%B %Y}"
@@ -291,7 +295,7 @@ class Runner:
             + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
             + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid in {month_label} per Slack thread." if moved else "")
             + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid {bank.paid:%Y-%m-%d} per the bank statement." if bank_moved else "")
-            + (f"\nBank: paid from {bank.describe()}." if bank else "")
+            + (f"\nBank: {'credited to' if r.is_refund else 'paid from'} {bank.describe()}." if bank else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
         prop_label = prop["name"] if prop else (

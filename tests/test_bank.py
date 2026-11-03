@@ -154,3 +154,37 @@ def test_bill_paid_next_month_is_found_and_dated_by_the_bank():
     assert m.paid == date(2026, 10, 1) and m.account == "Amex 1001"
     assert bank.find("Canada", 50.0, date(2026, 9, 25), None) is None  # two late lines: not a guess
     assert bank.find("Canada", 346.78, date(2026, 8, 1), None) is None  # too late to be this bill
+
+
+class RefundMonday(FakeMonday):
+    def workspace_boards_with_columns(self, ws, cols):
+        p = BANK["Canada"]["plaid_id"]
+        return [{"id": "31", "name": "October", "description": "October 2026", "column_ids": {p}},
+                {"id": "32", "name": "November", "description": "November 2026", "column_ids": {p}}]
+
+    def board_items(self, board_id, cols):
+        c = BANK["Canada"]
+
+        def item(id, name, when, out, money_in, recon, account="Amex Business Platinum ••1001"):
+            return {"id": id, "name": name, "group": {"title": account}, "cols": {
+                c["date"]: {"text": when}, c["account"]: {"text": account}, c["money_out"]: {"text": out},
+                c["money_in"]: {"text": money_in}, c["reconciliation"]: {"text": recon},
+                c["bank_status"]: {"text": "Posted"}, c["notes"]: {"text": ""}}}
+        if board_id == 31:
+            return [item("buy", "Amazon", "2026-10-27", "16.92", "", "Matched"),
+                    item("buy2", "Amazon", "2026-10-10", "74.68", "", "Needs Review")]
+        return [item("ref", "AMAZON.CA 866-216-1072", "2026-11-04", "", "16.92", "Needs Review"),
+                item("ref2", "AMAZON.CA", "2026-11-05", "", "74.68", "Needs Review")]
+
+
+def test_refund_matched_only_when_its_purchase_is():
+    fake = RefundMonday()
+    bank = BankStatements(fake)
+    m = bank.find_refund("Canada", 16.92, date(2026, 10, 29), None)
+    assert [r["id"] for r in m.rows] == ["ref"] and m.original["id"] == "buy" and m.account == "Amex 1001"
+    bank.claim(m, "Canada", 500, "700", "Amazon.ca", date(2026, 11, 5))
+    board, item, values = fake.updates[0]
+    assert (board, item) == (32, "ref") and values[BANK["Canada"]["reconciliation"]] == {"label": "Matched"}
+    assert "refunds the purchase on bank item buy" in values[BANK["Canada"]["notes"]]["text"]
+    # Its purchase isn't matched yet: the credit is left for review.
+    assert bank.find_refund("Canada", 74.68, date(2026, 11, 2), None) is None
