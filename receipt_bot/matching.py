@@ -168,7 +168,8 @@ def _merchant(name: str) -> str:
 
 
 def find_bank_match(rows: list[dict], total: float, when: date, last4s: set[str] | None,
-                    days_before: int, days_after: int, any_date: bool = False) -> list[dict] | None:
+                    days_before: int, days_after: int, any_date: bool = False,
+                    strict: bool = False) -> list[dict] | None:
     """The bank line(s) that paid a receipt, or None if there isn't exactly one answer.
 
     rows: open Money Out lines from the Bank Statements boards, each {id, name, date, amount, last4, ...}.
@@ -177,6 +178,7 @@ def find_bank_match(rows: list[dict], total: float, when: date, last4s: set[str]
     the rows when any_date, i.e. the receipt was booked to the month it was paid). One line for the
     whole amount wins; otherwise 2-4 lines from the same merchant on the same account that add up to
     it (Costco/Amazon charge each shipment separately).
+    strict: only a single line, and only if it's the only one for that amount (no closest-date pick, no splits).
     """
     def fits(row):
         if last4s is not None and row["last4"] not in last4s:
@@ -186,6 +188,8 @@ def find_bank_match(rows: list[dict], total: float, when: date, last4s: set[str]
 
     pool = [r for r in rows if fits(r)]
     single = [r for r in pool if abs(r["amount"] - total) <= 0.01]
+    if strict:
+        return single if len(single) == 1 else None
     if single:
         gaps = sorted(abs((r["date"] - when).days) for r in single)
         if len(single) == 1 or gaps[0] < gaps[1]:

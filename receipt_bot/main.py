@@ -220,6 +220,25 @@ class Runner:
 
         # Default: the receipt's own month. "Paid in <month>" in the thread moves it to that month's board.
         month, moved = booking_month(when, r.paid_month)
+
+        account = resolve_account(country, r.account, r.card_last4)
+        category = r.category if r.category in CATEGORIES[country] else None
+        expected_currency = "USD" if country == "USA" else "CAD"
+        # What the bank says: the line(s) that paid this receipt, so the account if the receipt doesn't show it,
+        # and the month it was actually paid in (bills are often paid the month after).
+        bank = None
+        if r.currency in (None, expected_currency) and not r.is_refund:
+            try:
+                bank = self.bank.find(country, r.total, when, account, month if moved else None)
+            except Exception:
+                print(f"Couldn't check the bank statements for {ref}:", file=sys.stderr)
+                traceback.print_exc()
+        if bank and not account and bank.account:
+            account = bank.account
+        bank_moved = False
+        if bank and not moved and bank.paid.strftime("%Y-%m") != month:
+            month, bank_moved = bank.paid.strftime("%Y-%m"), True
+
         month_label = f"{date.fromisoformat(month + '-01'):%B %Y}"
         board_id = self.boards.board_for(country, month)
         if not board_id:
@@ -231,28 +250,19 @@ class Runner:
                           f"correct one, or if it was paid in a later month, reply e.g. \"paid in October\".")
         if moved:
             date_note += f" (paid in {month_label} per Slack thread)"
+        elif bank_moved:
+            date_note += f" (paid {bank.paid:%b %d} per bank)"
 
         items = self.items(board_id)
+        # A receipt moved to its bank month may already be on its own month's board from an earlier run.
+        own_board = self.boards.board_for(country, when.strftime("%Y-%m")) if bank_moved else None
         if split:
             done, ref = split_logged(items, ref, amount)
         else:
-            done = already_logged(items, ref)
+            done = already_logged(items, ref) or (own_board and already_logged(self.items(own_board), ref))
         if done:
             return None
 
-        account = resolve_account(country, r.account, r.card_last4)
-        category = r.category if r.category in CATEGORIES[country] else None
-        expected_currency = "USD" if country == "USA" else "CAD"
-        # What the bank says: the line(s) that paid this receipt, and so the account if the receipt doesn't show it.
-        bank = None
-        if r.currency in (None, expected_currency) and not r.is_refund:
-            try:
-                bank = self.bank.find(country, r.total, when, account, month if moved else None)
-            except Exception:
-                print(f"Couldn't check the bank statements for {ref}:", file=sys.stderr)
-                traceback.print_exc()
-        if bank and not account and bank.account:
-            account = bank.account
         warnings = []
         if r.currency and r.currency != expected_currency:
             warnings.append(f"currency on receipt is {r.currency}, board is {expected_currency}")
@@ -271,6 +281,7 @@ class Runner:
             + (f" Shipped to: {r.receipt_address}." if r.receipt_address else "")
             + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
             + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid in {month_label} per Slack thread." if moved else "")
+            + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid {bank.paid:%Y-%m-%d} per the bank statement." if bank_moved else "")
             + (f"\nBank: paid from {bank.describe()}." if bank else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
@@ -283,7 +294,7 @@ class Runner:
             + (f" (bank: {bank.rows[0]['date']:%b %d}" + (f", {len(bank.rows)} charges" if len(bank.rows) > 1 else "") + ")" if bank else "")
         )
 
-        match = find_statement_match(items, amount, when, account, any_date=moved)
+        match = find_statement_match(items, amount, when, account, any_date=moved or bank_moved)
         if not match and not r.not_duplicate:
             dup = find_duplicate(items, amount, when, prop["name"] if prop else None)
             if dup:

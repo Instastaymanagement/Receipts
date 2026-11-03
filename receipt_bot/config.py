@@ -79,6 +79,9 @@ BANK_ACCOUNTS = {
 }
 # A bank line is the same charge when it's dated this many days before/after the receipt.
 BANK_DAYS_BEFORE, BANK_DAYS_AFTER = 2, 7
+# Bills and invoices are often paid weeks later. If nothing fits the window above, a single line up
+# to this many days after the receipt still counts (and decides which month the receipt is booked to).
+BANK_DAYS_LATE = 45
 # Reconciliation labels a person or the daily reconciliation has already settled.
 BANK_SETTLED = ("Matched", "Not an Expense")
 
