@@ -27,7 +27,8 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 - **Nicknames:** add the team's own names for a property (e.g. "Princess" = 948 Princess) to `property_aliases.json`. The bot then treats them as a definite match.
 - Several photos of the same receipt in one post are fine. So are several different receipts in one post.
 - For costs that aren't tied to one property, write `Property: Overhead USA` or `Property: Overhead Canada`.
-- **Donations** (mosques, charities, sponsorships) are logged as company charity: category *Donations*, no property. No need to name one.
+- **Donations** (mosques, charities, sponsorships) are logged as company charity: category *Donations*, no property. No need to name one. If the receipt doesn't show the currency, the bot asks whether it's Canada or USA.
+- **Refunds** (Amazon returns, credit notes) are logged as negative amounts, so they reduce the month's expenses.
 - After the nightly run, the bot replies in the thread:
   - **✅** The receipt was logged. The reply links to the Monday item.
   - **⚠️** Something needs fixing, such as an unknown property or an unreadable photo. **Reply in the thread** with the fix (e.g. "Property: 750 Walker"), and the next nightly run tries again.
