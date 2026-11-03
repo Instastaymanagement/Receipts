@@ -17,6 +17,7 @@ def test_resolve_account():
     assert resolve_account("Canada", None, "0000") is None
     assert resolve_account("Canada", None, "6827") == "Mastercard 9906"  # second card on the RBC ••9906 account
     assert resolve_account("USA", None, "6827") is None
+    assert resolve_account("Canada", None, "0430") == "Amex 1001"  # Amex Canada card on the ••1001 account
 
 
 def test_statement_match_picks_closest_unreceipted_line():
