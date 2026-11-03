@@ -195,8 +195,13 @@ class Runner:
             self.props_by_id, r.message_property_id, r.label_property_id, r.address_property_id,
             r.label_text, r.receipt_address)
         prop = self.props_by_id.get(prop_id or "")
-        if prop:
+        if prop and r.category == "Donations" and r.country:
+            prop, country, matched_by = None, r.country, "donation (charity, no property)"
+        elif prop:
             country = prop["country"]
+        elif r.category == "Donations" and r.country:
+            # Donations are company charity: no property, whatever the post or receipt says.
+            prop, country, matched_by = None, r.country, "donation (charity, no property)"
         elif r.is_overhead and r.country:
             country, matched_by = r.country, "Slack post"
         else:
@@ -265,7 +270,7 @@ class Runner:
             + (f"\nBank: paid from {bank.describe()}." if bank else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
-        prop_label = prop["name"] if prop else "Company / Overhead"
+        prop_label = prop["name"] if prop else ("Charity" if category == "Donations" else "Company / Overhead")
         if prop and matched_by != "Slack post":
             prop_label += f" (matched by {matched_by})"
         summary = (
