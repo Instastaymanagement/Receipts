@@ -1,6 +1,7 @@
 """Pure helpers: account resolution and matching receipts to existing board items."""
 
 from datetime import date
+from itertools import combinations
 
 from .config import ACCOUNTS, CARD_ALIASES, COL, MATCH_DATE_WINDOW_DAYS
 
@@ -158,3 +159,50 @@ def resolve_property(valid_ids, message_id, label_id, address_id, label_text=Non
     found = [d for t, d in ((label_text, label_desc), (address_text, addr_desc)) if t]
     detail = (" (" + " and ".join(found) + " didn't match a listed property)") if found else ""
     return None, "", f"No property in the post, file name/PO or shipping address{detail}. Reply with the property name.", None
+
+
+def _merchant(name: str) -> str:
+    """First word of a bank line's name, for grouping split charges ("Costco", "Amazon")."""
+    words = "".join(c if c.isalnum() else " " for c in name.lower()).split()
+    return words[0] if words else ""
+
+
+def find_bank_match(rows: list[dict], total: float, when: date, last4s: set[str] | None,
+                    days_before: int, days_after: int, any_date: bool = False) -> list[dict] | None:
+    """The bank line(s) that paid a receipt, or None if there isn't exactly one answer.
+
+    rows: open Money Out lines from the Bank Statements boards, each {id, name, date, amount, last4, ...}.
+    last4s: the accounts the receipt could have been paid from (None = any synced account).
+    A line counts when it's dated days_before before to days_after after the receipt (anywhere in
+    the rows when any_date, i.e. the receipt was booked to the month it was paid). One line for the
+    whole amount wins; otherwise 2-4 lines from the same merchant on the same account that add up to
+    it (Costco/Amazon charge each shipment separately).
+    """
+    def fits(row):
+        if last4s is not None and row["last4"] not in last4s:
+            return False
+        gap = (row["date"] - when).days
+        return any_date or -days_before <= gap <= days_after
+
+    pool = [r for r in rows if fits(r)]
+    single = [r for r in pool if abs(r["amount"] - total) <= 0.01]
+    if single:
+        gaps = sorted(abs((r["date"] - when).days) for r in single)
+        if len(single) == 1 or gaps[0] < gaps[1]:
+            return [min(single, key=lambda r: abs((r["date"] - when).days))]
+        return None  # same amount on two lines equally close: let a person decide
+
+    groups: dict[tuple, list[dict]] = {}
+    for r in pool:
+        if r["amount"] < total:
+            groups.setdefault((r["last4"], _merchant(r["name"])), []).append(r)
+    found = []
+    for lines in groups.values():
+        lines = sorted(lines, key=lambda r: r["date"])[:12]  # keeps the search small
+        for size in (2, 3, 4):
+            for combo in combinations(lines, size):
+                if abs(sum(r["amount"] for r in combo) - total) <= 0.01:
+                    found.append(list(combo))
+                    if len(found) > 1:
+                        return None
+    return found[0] if found else None

@@ -48,6 +48,13 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 | Statement Ref | `slack:<message ts>:<file #>` (prevents double entry) |
 | Notes | Poster, message, Slack link, Claude's description, and anything to double-check |
 
+**Checking the bank statements:** before logging, the bot looks on the *Bank Statements* boards (filled from the banks by the bank sync) for the line that paid the receipt: same amount, dated from 2 days before to 7 days after the receipt, on the receipt's account if it's known. When a receipt was booked to the month it was paid in, it looks anywhere in that month. Costco and Amazon often charge one order as several lines, so 2–4 lines from the same store on the same account that add up to the total also count. When exactly one answer fits:
+- the Account is filled in from the bank line if the receipt didn't show it (e.g. an e-Transfer from BMO Chequing 9640),
+- the Notes say which bank line paid it, and
+- the bank line is set to *Matched* with a link to the expense (lines still *Pending* are left for the daily reconciliation).
+
+Accounts the bank sync doesn't cover (Amex 1007, Chase, Cash, Falis) aren't checked. `BANK_ACCOUNTS` in `config.py` maps each synced account to its Account label.
+
 **Matching statement lines:** if the board already has a line with the same amount, a date within ±3 days, a matching (or blank) account, and no receipt yet, the bot attaches the receipt to that line instead of creating a duplicate.
 
 ## One-time setup
@@ -103,6 +110,7 @@ pytest -q
 - `receipt_bot/main.py`: the nightly run (Slack → Claude → Monday → Slack reply)
 - `receipt_bot/extractor.py`: Claude prompt and output fields
 - `receipt_bot/matching.py`: account lookup, duplicate and statement-line matching
+- `receipt_bot/bank.py`: reads the Bank Statements boards to find the line that paid each receipt
 - `receipt_bot/schedule.py`: 9 pm Toronto check (handles daylight saving)
 - `receipt_bot/config.py`: column IDs, account and category labels
 - `receipt_bot/boards.py`: finds or creates each month's board

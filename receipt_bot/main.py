@@ -11,6 +11,7 @@ from .config import (
     BOARDS, CATEGORIES, COL, PROPERTY_ALIASES, SUB_COL, COUNTRIES, DONE_REACTION, DRY_RUN, LOOKBACK_DAYS,
     MONDAY_ACCOUNT_URL, TIMEZONE, WARN_REACTION, env,
 )
+from .bank import BankStatements
 from .boards import BoardManager
 from .extractor import IMAGE_TYPES, MAX_IMAGE_BYTES, Extractor, Receipt
 from .matching import already_logged, booking_month, split_logged, find_duplicate, find_statement_match, resolve_account, resolve_property
@@ -100,6 +101,7 @@ class Runner:
         self.props_by_id = {p["id"]: p for p in self.properties}
         self.extractor = Extractor(env("ANTHROPIC_API_KEY"), self.properties)
         self.boards = BoardManager(self.monday, dry_run=DRY_RUN)
+        self.bank = BankStatements(self.monday)
         self.board_items: dict[int, list[dict]] = {}
         self.stats = Stats()
 
@@ -232,6 +234,16 @@ class Runner:
         account = resolve_account(country, r.account, r.card_last4)
         category = r.category if r.category in CATEGORIES[country] else None
         expected_currency = "USD" if country == "USA" else "CAD"
+        # What the bank says: the line(s) that paid this receipt, and so the account if the receipt doesn't show it.
+        bank = None
+        if r.currency in (None, expected_currency):
+            try:
+                bank = self.bank.find(country, r.total, when, account, month if moved else None)
+            except Exception:
+                print(f"Couldn't check the bank statements for {ref}:", file=sys.stderr)
+                traceback.print_exc()
+        if bank and not account and bank.account:
+            account = bank.account
         warnings = []
         if r.currency and r.currency != expected_currency:
             warnings.append(f"currency on receipt is {r.currency}, board is {expected_currency}")
@@ -250,6 +262,7 @@ class Runner:
             + (f" Shipped to: {r.receipt_address}." if r.receipt_address else "")
             + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
             + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid in {month_label} per Slack thread." if moved else "")
+            + (f"\nBank: paid from {bank.describe()}." if bank else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
         prop_label = prop["name"] if prop else "Company / Overhead"
@@ -258,6 +271,7 @@ class Runner:
         summary = (
             f"{r.vendor} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"
+            + (f" (bank: {bank.rows[0]['date']:%b %d}" + (f", {len(bank.rows)} charges" if len(bank.rows) > 1 else "") + ")" if bank else "")
         )
 
         match = find_statement_match(items, r.total, when, account, any_date=moved)
@@ -277,6 +291,8 @@ class Runner:
                 update[COL["property"]] = {"item_ids": [int(prop["id"])]}
             if category and not cols.get(COL["category"], {}).get("text"):
                 update[COL["category"]] = {"labels": [category]}
+            if account and not cols.get(COL["account"], {}).get("text"):
+                update[COL["account"]] = {"label": account}
             self.monday.update_item(board_id, match["id"], update)
             item_id = match["id"]
             cols.setdefault(COL["notes"], {})["text"] = update[COL["notes"]]["text"]
@@ -311,6 +327,12 @@ class Runner:
             self.stats.logged[country] += 1
             verb = f"Logged to {country}"
 
+        if bank:
+            try:
+                self.bank.claim(bank, country, board_id, item_id, r.vendor or "Receipt", datetime.now(TZ).date())
+            except Exception:
+                print(f"Couldn't mark bank line(s) matched for {ref}:", file=sys.stderr)
+                traceback.print_exc()
         for f in files:
             self.monday.upload_file(item_id, f.name, f.original, f.mimetype)
         for li in r.line_items:
