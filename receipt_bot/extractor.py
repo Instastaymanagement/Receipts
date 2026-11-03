@@ -29,6 +29,7 @@ class Receipt(BaseModel):
     receipt_date: str | None = Field(description="Purchase date as YYYY-MM-DD, or null if not shown.")
     paid_month: str | None = Field(description="YYYY-MM, ONLY if the Slack post or a thread reply explicitly says this receipt was paid in / belongs to / should be booked under a specific month (e.g. 'these were paid in October'). Null otherwise; never derive it from the receipt date.")
     total: float | None = Field(description="Grand total actually charged, including tax and tip. Positive number.")
+    is_fuel: bool = Field(description="True for vehicle fuel bought at a gas station (Costco Gas, Petro-Canada, Esso, Shell, Pioneer...). False for natural gas utility bills (Enbridge etc.).")
     is_refund: bool = Field(description="True if this is a refund, return or credit note (money back to us), not a purchase. total stays positive.")
     tax: float | None = Field(description="Sales tax / HST included in the total. 0 if none shown, null if unclear.")
     currency: Literal["USD", "CAD", "OTHER"] | None
@@ -68,6 +69,7 @@ Rules:
 - Account: only choose from the account list for the property's country. Match on what the message says (e.g. "amex 1007", "BMO", "cash") or the card's last 4 digits; a card listed under "Other card numbers" belongs to the account it maps to. Otherwise null; don't guess.
 - Category: pick the single best label from the category list for the property's country.
 - Month: by default the expense goes to the month of the receipt date, so leave paid_month null. Only when the post or a thread reply explicitly says the receipt was paid in (or belongs to / should go under) a particular month, set paid_month to that month as YYYY-MM, and keep receipt_date as the date printed on the receipt. If a reply names a month without a year, use the most recent such month on or before the post date. If a reply says it applies to all the receipts in the post ("these", "all of these"), set it on every entry.
+- Vehicle fuel (gas stations: Costco Gas, Petro-Canada, Esso, Shell, Pioneer, Ultramar, Circle K, Sunoco...) is an InstaStay company expense: set is_fuel true, is_overhead true, all property ids null, category "Travel & Vehicle". Natural gas utility bills (Enbridge, Union Gas) are NOT fuel; they belong to a property.
 - Refunds, returns and credit notes: set is_refund true and keep total and tax positive (code logs them as negative).
 - Amounts: total is the final amount charged. Tax is sales tax / HST / GST included in that total.
 - If a receipt is unreadable, isn't a receipt, still return an entry with readable/property set accordingly and a clear one-line `problem` the poster can act on."""

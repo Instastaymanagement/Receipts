@@ -28,7 +28,8 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 - Several photos of the same receipt in one post are fine. So are several different receipts in one post.
 - For costs that aren't tied to one property, write `Property: Overhead USA` or `Property: Overhead Canada`.
 - **Donations** (mosques, charities, sponsorships) are logged as company charity: category *Donations*, no property. No need to name one. If the receipt doesn't show the currency, the bot asks whether it's Canada or USA.
-- **Refunds** (Amazon returns, credit notes) are logged as negative amounts, so they reduce the month's expenses.
+- **Refunds** (Amazon returns, credit notes) are logged as negative amounts, so they reduce the month's expenses, and get Review Status *Needs Review* so someone checks them.
+- **Fuel** (Costco Gas, Petro-Canada, Esso, Shell...) is an InstaStay company expense: category *Travel & Vehicle*, no property. No need to name one. Natural gas bills (Enbridge) still go to their property.
 - After the nightly run, the bot replies in the thread:
   - **✅** The receipt was logged. The reply links to the Monday item.
   - **⚠️** Something needs fixing, such as an unknown property or an unreadable photo. **Reply in the thread** with the fix (e.g. "Property: 750 Walker"), and the next nightly run tries again.
@@ -46,7 +47,7 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 | Billable to Owner | `Unsure` |
 | Owner Report Month | Month of the receipt, or the month it was paid in if the thread says so |
 | Receipt / Receipt Status | File uploaded / `Uploaded` |
-| Review Status | `New` |
+| Review Status | `New` (`Needs Review` for refunds) |
 | Statement Ref | `slack:<message ts>:<file #>` (prevents double entry) |
 | Notes | Poster, message, Slack link, Claude's description, and anything to double-check |
 

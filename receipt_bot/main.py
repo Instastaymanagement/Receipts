@@ -202,6 +202,11 @@ class Runner:
             if not country_hint:
                 raise Problem("Is this donation from Canada or the USA? Reply with the country and I'll log it as charity.")
             prop, country, matched_by = None, country_hint, "donation (charity, no property)"
+        elif r.is_fuel:
+            # Gas-station fuel is an InstaStay company expense: no property.
+            if not country_hint:
+                raise Problem("Is this fuel purchase from Canada or the USA? Reply with the country and I'll log it as a company expense.")
+            prop, country, matched_by = None, country_hint, "fuel (InstaStay company expense, no property)"
         elif prop:
             country = prop["country"]
         elif r.is_overhead and country_hint:
@@ -223,6 +228,8 @@ class Runner:
 
         account = resolve_account(country, r.account, r.card_last4)
         category = r.category if r.category in CATEGORIES[country] else None
+        if r.is_fuel:
+            category = "Travel & Vehicle"
         expected_currency = "USD" if country == "USA" else "CAD"
         # What the bank says: the line(s) that paid this receipt, so the account if the receipt doesn't show it,
         # and the month it was actually paid in (bills are often paid the month after).
@@ -264,6 +271,8 @@ class Runner:
             return None
 
         warnings = []
+        if r.is_refund:
+            warnings.append("refund: logged as a negative amount and flagged Needs Review")
         if r.currency and r.currency != expected_currency:
             warnings.append(f"currency on receipt is {r.currency}, board is {expected_currency}")
         if not account:
@@ -285,7 +294,8 @@ class Runner:
             + (f"\nBank: paid from {bank.describe()}." if bank else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
-        prop_label = prop["name"] if prop else ("Charity" if category == "Donations" else "Company / Overhead")
+        prop_label = prop["name"] if prop else (
+            "Charity" if category == "Donations" else "InstaStay (company)" if r.is_fuel else "Company / Overhead")
         if prop and matched_by != "Slack post":
             prop_label += f" (matched by {matched_by})"
         summary = (
@@ -313,6 +323,8 @@ class Runner:
                 update[COL["category"]] = {"labels": [category]}
             if account and not cols.get(COL["account"], {}).get("text"):
                 update[COL["account"]] = {"label": account}
+            if r.is_refund:
+                update[COL["review_status"]] = {"label": "Needs Review"}
             self.monday.update_item(board_id, match["id"], update)
             item_id = match["id"]
             cols.setdefault(COL["notes"], {})["text"] = update[COL["notes"]]["text"]
@@ -326,7 +338,7 @@ class Runner:
                 COL["billable"]: {"label": "Unsure"},
                 COL["report_month"]: {"labels": [month_label]},
                 COL["receipt_status"]: {"label": "Uploaded"},
-                COL["review_status"]: {"label": "New"},
+                COL["review_status"]: {"label": "Needs Review" if r.is_refund else "New"},
                 COL["statement_ref"]: ref,
                 COL["notes"]: {"text": note},
             }
