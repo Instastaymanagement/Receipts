@@ -7,7 +7,7 @@ from typing import Literal
 import anthropic
 from pydantic import BaseModel, Field
 
-from .config import ACCOUNTS, CATEGORIES, CLAUDE_MODEL
+from .config import ACCOUNTS, CARD_ALIASES, CATEGORIES, CLAUDE_MODEL
 
 IMAGE_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -63,7 +63,7 @@ Rules:
   Units matter when several properties share a street address or name (e.g. Upstairs/Downstairs, Unit 1/2): only pick one if the evidence says which unit; otherwise leave that source null and say so in `problem`.
 - If the message says it's for the company, office, overhead or multiple properties, set is_overhead true, property_id null, and set country from context (USD/US address -> USA, CAD/Canadian address -> Canada) or null.
 - `problem` is for things the team must fix or check. Don't use it to report that a shipping address isn't a listed property (that's normal); only mention property matching there when a unit is ambiguous or the sources contradict each other.
-- Account: only choose from the account list for the property's country. Match on what the message says (e.g. "amex 1007", "BMO", "cash") or the card's last 4 digits. Otherwise null; don't guess.
+- Account: only choose from the account list for the property's country. Match on what the message says (e.g. "amex 1007", "BMO", "cash") or the card's last 4 digits; a card listed under "Other card numbers" belongs to the account it maps to. Otherwise null; don't guess.
 - Category: pick the single best label from the category list for the property's country.
 - Month: by default the expense goes to the month of the receipt date, so leave paid_month null. Only when the post or a thread reply explicitly says the receipt was paid in (or belongs to / should go under) a particular month, set paid_month to that month as YYYY-MM, and keep receipt_date as the date printed on the receipt. If a reply names a month without a year, use the most recent such month on or before the post date. If a reply says it applies to all the receipts in the post ("these", "all of these"), set it on every entry.
 - Amounts: total is the final amount charged. Tax is sales tax / HST / GST included in that total.
@@ -73,6 +73,7 @@ Rules:
 def _reference_text() -> str:
     return (
         "Account labels by country:\n" + json.dumps(ACCOUNTS, indent=1)
+        + "\n\nOther card numbers (last 4 -> account label) by country:\n" + json.dumps(CARD_ALIASES, indent=1)
         + "\n\nCategory labels by country:\n" + json.dumps(CATEGORIES, indent=1)
     )
 

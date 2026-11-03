@@ -42,6 +42,16 @@ ACCOUNTS = {
     ],
 }
 
+# Other card numbers that bill to one of the accounts above (e.g. a second card on the same
+# credit account). The receipt shows the card's own last 4, the statement shows the account's.
+CARD_ALIASES = {
+    "USA": {},
+    "Canada": {
+        "6827": "Mastercard 9906",  # RBC Business Mastercard card 6827 is on account ••9906
+        "0430": "Amex 1001",        # Amex Canada card 0430 is on Amex Business Platinum ••1001
+    },
+}
+
 # "Category" dropdown labels. Utilities is worded differently per country.
 _CATEGORIES = [
     "Cleaning", "Laundry & Linens", "Supplies & Consumables", "Repairs & Maintenance",
