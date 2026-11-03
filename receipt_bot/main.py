@@ -195,17 +195,21 @@ class Runner:
             self.props_by_id, r.message_property_id, r.label_property_id, r.address_property_id,
             r.label_text, r.receipt_address)
         prop = self.props_by_id.get(prop_id or "")
-        if prop and r.category == "Donations" and r.country:
-            prop, country, matched_by = None, r.country, "donation (charity, no property)"
+        # Country when there's no property: Claude's reading, else the receipt's currency.
+        country_hint = r.country or {"CAD": "Canada", "USD": "USA"}.get(r.currency or "")
+        if r.category == "Donations":
+            # Donations are company charity: no property, whatever the post or receipt says.
+            if not country_hint:
+                raise Problem("Is this donation from Canada or the USA? Reply with the country and I'll log it as charity.")
+            prop, country, matched_by = None, country_hint, "donation (charity, no property)"
         elif prop:
             country = prop["country"]
-        elif r.category == "Donations" and r.country:
-            # Donations are company charity: no property, whatever the post or receipt says.
-            prop, country, matched_by = None, r.country, "donation (charity, no property)"
-        elif r.is_overhead and r.country:
-            country, matched_by = r.country, "Slack post"
+        elif r.is_overhead and country_hint:
+            country, matched_by = country_hint, "Slack post"
         else:
             raise Problem(prop_problem)
+        # Refunds are logged as negative amounts, so they reduce the month's expenses.
+        amount = -r.total if r.is_refund else r.total
 
         when, date_note = posted, " (no date on receipt, used post date)"
         if r.receipt_date:
@@ -216,6 +220,25 @@ class Runner:
 
         # Default: the receipt's own month. "Paid in <month>" in the thread moves it to that month's board.
         month, moved = booking_month(when, r.paid_month)
+
+        account = resolve_account(country, r.account, r.card_last4)
+        category = r.category if r.category in CATEGORIES[country] else None
+        expected_currency = "USD" if country == "USA" else "CAD"
+        # What the bank says: the line(s) that paid this receipt, so the account if the receipt doesn't show it,
+        # and the month it was actually paid in (bills are often paid the month after).
+        bank = None
+        if r.currency in (None, expected_currency) and not r.is_refund:
+            try:
+                bank = self.bank.find(country, r.total, when, account, month if moved else None)
+            except Exception:
+                print(f"Couldn't check the bank statements for {ref}:", file=sys.stderr)
+                traceback.print_exc()
+        if bank and not account and bank.account:
+            account = bank.account
+        bank_moved = False
+        if bank and not moved and bank.paid.strftime("%Y-%m") != month:
+            month, bank_moved = bank.paid.strftime("%Y-%m"), True
+
         month_label = f"{date.fromisoformat(month + '-01'):%B %Y}"
         board_id = self.boards.board_for(country, month)
         if not board_id:
@@ -227,28 +250,19 @@ class Runner:
                           f"correct one, or if it was paid in a later month, reply e.g. \"paid in October\".")
         if moved:
             date_note += f" (paid in {month_label} per Slack thread)"
+        elif bank_moved:
+            date_note += f" (paid {bank.paid:%b %d} per bank)"
 
         items = self.items(board_id)
+        # A receipt moved to its bank month may already be on its own month's board from an earlier run.
+        own_board = self.boards.board_for(country, when.strftime("%Y-%m")) if bank_moved else None
         if split:
-            done, ref = split_logged(items, ref, r.total)
+            done, ref = split_logged(items, ref, amount)
         else:
-            done = already_logged(items, ref)
+            done = already_logged(items, ref) or (own_board and already_logged(self.items(own_board), ref))
         if done:
             return None
 
-        account = resolve_account(country, r.account, r.card_last4)
-        category = r.category if r.category in CATEGORIES[country] else None
-        expected_currency = "USD" if country == "USA" else "CAD"
-        # What the bank says: the line(s) that paid this receipt, and so the account if the receipt doesn't show it.
-        bank = None
-        if r.currency in (None, expected_currency):
-            try:
-                bank = self.bank.find(country, r.total, when, account, month if moved else None)
-            except Exception:
-                print(f"Couldn't check the bank statements for {ref}:", file=sys.stderr)
-                traceback.print_exc()
-        if bank and not account and bank.account:
-            account = bank.account
         warnings = []
         if r.currency and r.currency != expected_currency:
             warnings.append(f"currency on receipt is {r.currency}, board is {expected_currency}")
@@ -267,6 +281,7 @@ class Runner:
             + (f" Shipped to: {r.receipt_address}." if r.receipt_address else "")
             + (f" ({prop_note}.)" if prop_note and matched_by != "Slack post" else "")
             + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid in {month_label} per Slack thread." if moved else "")
+            + (f"\nBooked to {month_label}: receipt dated {when:%Y-%m-%d}, paid {bank.paid:%Y-%m-%d} per the bank statement." if bank_moved else "")
             + (f"\nBank: paid from {bank.describe()}." if bank else "")
             + (f"\nCheck: {'; '.join(w.rstrip('. ') for w in warnings)}." if warnings else "")
         )
@@ -274,14 +289,14 @@ class Runner:
         if prop and matched_by != "Slack post":
             prop_label += f" (matched by {matched_by})"
         summary = (
-            f"{r.vendor} · ${r.total:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
+            f"{r.vendor} · {'refund ' if r.is_refund else ''}${amount:,.2f}" + (f" (tax ${r.tax:,.2f})" if r.tax else "")
             + f" · {when:%b %d}{date_note} · {prop_label} · {category or 'no category'} · {account or 'account unknown'}"
             + (f" (bank: {bank.rows[0]['date']:%b %d}" + (f", {len(bank.rows)} charges" if len(bank.rows) > 1 else "") + ")" if bank else "")
         )
 
-        match = find_statement_match(items, r.total, when, account, any_date=moved)
+        match = find_statement_match(items, amount, when, account, any_date=moved or bank_moved)
         if not match and not r.not_duplicate:
-            dup = find_duplicate(items, r.total, when, prop["name"] if prop else None)
+            dup = find_duplicate(items, amount, when, prop["name"] if prop else None)
             if dup:
                 raise Problem(f"This looks like the same bill already logged from another post ({when:%b %d}, ${r.total:,.2f}): "
                               f"{item_url(board_id, dup['id'])}\nIf it's a separate charge, reply \"not a duplicate\" and I'll log it.")
@@ -307,7 +322,7 @@ class Runner:
         else:
             values = {
                 COL["date"]: {"date": when.isoformat()},
-                COL["amount"]: f"{r.total:.2f}",
+                COL["amount"]: f"{amount:.2f}",
                 COL["billable"]: {"label": "Unsure"},
                 COL["report_month"]: {"labels": [month_label]},
                 COL["receipt_status"]: {"label": "Uploaded"},
@@ -316,7 +331,7 @@ class Runner:
                 COL["notes"]: {"text": note},
             }
             if r.tax is not None:
-                values[COL["tax"]] = f"{r.tax:.2f}"
+                values[COL["tax"]] = f"{-r.tax if r.is_refund else r.tax:.2f}"
             if account:
                 values[COL["account"]] = {"label": account}
             if prop:
@@ -326,7 +341,7 @@ class Runner:
             item_id = self.monday.create_item(board_id, r.vendor or "Receipt", values)
             items.append({"id": item_id, "name": r.vendor, "cols": {
                 COL["statement_ref"]: {"text": ref}, COL["notes"]: {"text": note},
-                COL["receipt_status"]: {"text": "Uploaded"}, COL["amount"]: {"text": f"{r.total:.2f}"},
+                COL["receipt_status"]: {"text": "Uploaded"}, COL["amount"]: {"text": f"{amount:.2f}"},
                 COL["date"]: {"text": when.isoformat()}, COL["property"]: {"text": prop["name"] if prop else ""},
             }})
             self.stats.logged[country] += 1

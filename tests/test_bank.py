@@ -65,6 +65,7 @@ def test_helpers():
     assert last4("Unrecognized account") == ""
     assert months_around(date(2026, 10, 10)) == ["2026-10"]
     assert months_around(date(2026, 12, 29)) == ["2026-12", "2027-01"]
+    assert months_around(date(2026, 9, 20), 45) == ["2026-09", "2026-10", "2026-11"]
     assert account_last4s("Canada", None) is None
     assert account_last4s("Canada", "BMO Chequing 9640") == {"9640"}
     assert account_last4s("Canada", "Cash") == set()
@@ -122,3 +123,34 @@ def test_bank_statements_find_and_claim():
     # Settled lines are ignored, and accounts the bank doesn't cover are skipped.
     assert bank.find("Canada", 40.0, date(2026, 11, 3), None) is None
     assert bank.find("Canada", 146.90, date(2026, 11, 2), "Cash") is None
+
+
+class LateMonday(FakeMonday):
+    def workspace_boards_with_columns(self, ws, cols):
+        p = BANK["Canada"]["plaid_id"]
+        return [{"id": "21", "name": "September", "description": "September 2026", "column_ids": {p}},
+                {"id": "22", "name": "October", "description": "October 2026", "column_ids": {p}}]
+
+    def board_items(self, board_id, cols):
+        c = BANK["Canada"]
+        if board_id != 22:
+            return []
+
+        def item(id, name, when, out, account):
+            return {"id": id, "name": name, "group": {"title": account}, "cols": {
+                c["date"]: {"text": when}, c["account"]: {"text": account}, c["money_out"]: {"text": out},
+                c["reconciliation"]: {"text": "Unmatched"}, c["bank_status"]: {"text": "Posted"}, c["notes"]: {"text": ""}}}
+        return [item("h1", "London Hydro Inc.", "2026-10-19", "346.78", "RBC Business Mastercard ••9906"),
+                item("a1", "Amazon", "2026-10-01", "85.87", "Amex Business Platinum ••1001"),
+                item("x1", "Costco", "2026-10-20", "50", "RBC Business Mastercard ••9906"),
+                item("x2", "Walmart", "2026-10-22", "50", "Amex Business Platinum ••1001")]
+
+
+def test_bill_paid_next_month_is_found_and_dated_by_the_bank():
+    bank = BankStatements(LateMonday())
+    m = bank.find("Canada", 346.78, date(2026, 9, 28), None)      # paid 21 days later
+    assert [r["id"] for r in m.rows] == ["h1"] and m.paid == date(2026, 10, 19)
+    m = bank.find("Canada", 85.87, date(2026, 9, 30), None)       # charged the next day, next month
+    assert m.paid == date(2026, 10, 1) and m.account == "Amex 1001"
+    assert bank.find("Canada", 50.0, date(2026, 9, 25), None) is None  # two late lines: not a guess
+    assert bank.find("Canada", 346.78, date(2026, 8, 1), None) is None  # too late to be this bill

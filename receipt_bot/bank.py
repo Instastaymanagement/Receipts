@@ -8,9 +8,9 @@ doesn't flag it.
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
-from .config import BANK, BANK_ACCOUNTS, BANK_DAYS_AFTER, BANK_DAYS_BEFORE, BANK_SETTLED, BOARDS
+from .config import BANK, BANK_ACCOUNTS, BANK_DAYS_AFTER, BANK_DAYS_BEFORE, BANK_DAYS_LATE, BANK_SETTLED, BOARDS
 from .matching import find_bank_match
 from .monday_api import Monday
 
@@ -44,13 +44,15 @@ def account_last4s(country: str, account: str | None) -> set[str] | None:
     return {d for d, label in BANK_ACCOUNTS[country].items() if label == account}
 
 
-def months_around(when: date) -> list[str]:
-    """The receipt's month, plus the next one when the bank could post it after month end."""
-    this = when.strftime("%Y-%m")
-    if when.day + BANK_DAYS_AFTER <= 28:
-        return [this]
-    nxt = date(when.year + when.month // 12, when.month % 12 + 1, 1).strftime("%Y-%m")
-    return [this, nxt]
+def months_around(when: date, days_after: int = BANK_DAYS_AFTER) -> list[str]:
+    """The receipt's month and every later month the bank could post it in within days_after."""
+    months = [when.strftime("%Y-%m")]
+    end = when + timedelta(days=days_after)
+    y, m = when.year, when.month
+    while (y, m) < (end.year, end.month):
+        y, m = y + m // 12, m % 12 + 1
+        months.append(f"{y}-{m:02d}")
+    return months
 
 
 def _amount(text: str) -> float | None:
@@ -64,6 +66,11 @@ def _amount(text: str) -> float | None:
 class BankMatch:
     rows: list[dict]
     account: str | None  # expense Account label for the bank account that paid
+
+    @property
+    def paid(self) -> date:
+        """When the bank paid it (the last line, for a split charge)."""
+        return max(r["date"] for r in self.rows)
 
     def describe(self) -> str:
         r = self.rows[0]
@@ -131,10 +138,20 @@ class BankStatements:
         last4s = account_last4s(country, account)
         if last4s is not None and not last4s:
             return None  # paid from an account the bank sync doesn't cover
-        months = [paid_month] if paid_month else months_around(when)
-        rows = [r for m in months for r in self.rows(country, m)
-                if r["reconciliation"] not in BANK_SETTLED and r["id"] not in self.used]
-        found = find_bank_match(rows, total, when, last4s, BANK_DAYS_BEFORE, BANK_DAYS_AFTER, any_date=bool(paid_month))
+        def open_rows(months):
+            return [r for m in months for r in self.rows(country, m)
+                    if r["reconciliation"] not in BANK_SETTLED and r["id"] not in self.used]
+
+        if paid_month:
+            found = find_bank_match(open_rows([paid_month]), total, when, last4s, BANK_DAYS_BEFORE, BANK_DAYS_AFTER,
+                                    any_date=True)
+        else:
+            found = find_bank_match(open_rows(months_around(when)), total, when, last4s, BANK_DAYS_BEFORE,
+                                    BANK_DAYS_AFTER)
+            if not found:
+                # Paid later (bills, invoices): one line for the full amount, up to BANK_DAYS_LATE after.
+                found = find_bank_match(open_rows(months_around(when, BANK_DAYS_LATE)), total, when, last4s,
+                                        BANK_DAYS_BEFORE, BANK_DAYS_LATE, strict=True)
         if not found:
             return None
         return BankMatch(found, BANK_ACCOUNTS[country].get(found[0]["last4"]))
