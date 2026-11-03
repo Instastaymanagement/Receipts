@@ -62,6 +62,7 @@ Rules:
   "Other names" in the property list include the team's own nicknames; a nickname listed for exactly one property is a definite match even if another property has a similar name.
   Units matter when several properties share a street address or name (e.g. Upstairs/Downstairs, Unit 1/2): only pick one if the evidence says which unit; otherwise leave that source null and say so in `problem`.
 - If the message says it's for the company, office, overhead or multiple properties, set is_overhead true, property_id null, and set country from context (USD/US address -> USA, CAD/Canadian address -> Canada) or null.
+- Donations (mosques, charities, sponsorships, fundraisers) are company charity, never a property cost: set is_overhead true, all property ids null, category "Donations", and country from the currency/address (CAD or a Canadian charity -> Canada). Don't report a missing property for them.
 - `problem` is for things the team must fix or check. Don't use it to report that a shipping address isn't a listed property (that's normal); only mention property matching there when a unit is ambiguous or the sources contradict each other.
 - Account: only choose from the account list for the property's country. Match on what the message says (e.g. "amex 1007", "BMO", "cash") or the card's last 4 digits; a card listed under "Other card numbers" belongs to the account it maps to. Otherwise null; don't guess.
 - Category: pick the single best label from the category list for the property's country.

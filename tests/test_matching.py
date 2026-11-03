@@ -12,8 +12,9 @@ def item(id, amount, when, account="", receipt="Missing", ref="", notes=""):
 
 def test_resolve_account():
     assert resolve_account("USA", "Amex 1007", None) == "Amex 1007"
-    assert resolve_account("USA", "BMO Chequing 3290", None) is None  # Canada label on a US receipt
-    assert resolve_account("Canada", None, "3290") == "BMO Chequing 3290"
+    assert resolve_account("USA", "RBC Chequing 3290", None) is None  # Canada label on a US receipt
+    assert resolve_account("Canada", None, "3290") == "RBC Chequing 3290"
+    assert resolve_account("Canada", None, "9640") == "BMO Chequing 9640"
     assert resolve_account("Canada", None, "0000") is None
     assert resolve_account("Canada", None, "6827") == "Mastercard 9906"  # second card on the RBC ••9906 account
     assert resolve_account("USA", None, "6827") is None

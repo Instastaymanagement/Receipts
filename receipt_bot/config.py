@@ -37,8 +37,8 @@ SUB_COL = {"qty": "item_qty", "price": "item_price"}
 ACCOUNTS = {
     "USA": ["Amex 1002", "Amex 1007", "Mercury", "Chase 3624", "Checking 7543", "Cash"],
     "Canada": [
-        "Amex 1001", "Amex 1007", "Mastercard 9906", "BMO Chequing 3290",
-        "BMO Savings 1725", "RBC Savings", "Falis", "Cash",
+        "Amex 1001", "Amex 1007", "Mastercard 9906", "RBC Chequing 3290",
+        "RBC Savings 1725", "BMO Chequing 9640", "RBC Savings", "Falis", "Cash",
     ],
 }
 
@@ -52,13 +52,43 @@ CARD_ALIASES = {
     },
 }
 
+# Bank Statements boards (filled by the bank sync from Plaid, one board per month per country).
+# A board belongs to a country when it has that country's Plaid Transaction ID column; its month
+# comes from the board name ("November", "November 2026", "Bank Statements · November 2026") with
+# the year from the name or the board description.
+BANK = {
+    "USA": {
+        "plaid_id": "text_mm8b35gj", "date": "date_mm8bn1ns", "account": "dropdown_mm8br48e",
+        "money_out": "numeric_mm8bjz34", "reconciliation": "color_mm8bvyje",
+        "bank_status": "color_mm8bwq12", "notes": "long_text_mm8b7zfz",
+    },
+    "Canada": {
+        "plaid_id": "text_mm8b5gtg", "date": "date_mm8byjx3", "account": "dropdown_mm8bb8ky",
+        "money_out": "numeric_mm8bx64x", "reconciliation": "color_mm8bt0rf",
+        "bank_status": "color_mm8ben25", "notes": "long_text_mm8bdywe",
+    },
+}
+# Last 4 digits of each synced bank account -> the expense board's Account label.
+# Accounts not listed here (e.g. Amex 1007, Chase) aren't synced, so the bot can't check them.
+BANK_ACCOUNTS = {
+    "USA": {"2611": "Mercury", "8864": "Mercury", "3334": "Mercury", "0000": "Mercury"},
+    "Canada": {
+        "3290": "RBC Chequing 3290", "1725": "RBC Savings 1725", "9906": "Mastercard 9906",
+        "9640": "BMO Chequing 9640", "1001": "Amex 1001",
+    },
+}
+# A bank line is the same charge when it's dated this many days before/after the receipt.
+BANK_DAYS_BEFORE, BANK_DAYS_AFTER = 2, 7
+# Reconciliation labels a person or the daily reconciliation has already settled.
+BANK_SETTLED = ("Matched", "Not an Expense")
+
 # "Category" dropdown labels. Utilities is worded differently per country.
 _CATEGORIES = [
     "Cleaning", "Laundry & Linens", "Supplies & Consumables", "Repairs & Maintenance",
     "Handyman / Labour", "UTILITIES", "Internet & TV", "Garbage / Snow Removal",
     "Furnishings & Equipment", "Start-Up / Capex", "Software & Subscriptions",
     "Platform & Bank Fees", "Insurance", "Rent / Lease", "Marketing & Photography",
-    "Travel & Vehicle", "Meals", "Office & Admin", "Professional Fees",
+    "Travel & Vehicle", "Meals", "Office & Admin", "Professional Fees", "Donations",
 ]
 CATEGORIES = {
     "USA": [c.replace("UTILITIES", "Utilities (Electric, Gas, Water)") for c in _CATEGORIES],

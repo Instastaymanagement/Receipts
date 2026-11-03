@@ -101,6 +101,25 @@ class Monday:
                 return boards
             page += 1
 
+    def workspace_boards_with_columns(self, workspace_id: int, column_ids: list[str]) -> list[dict]:
+        """Boards in a workspace with their description and which of column_ids they have."""
+        boards, page = [], 1
+        while True:
+            batch = self._gql(
+                """query ($ws: [ID!], $page: Int!, $cols: [String!]) {
+                     boards(workspace_ids: $ws, state: active, limit: 500, page: $page) {
+                       id name description columns(ids: $cols) { id }
+                     }
+                   }""",
+                {"ws": [workspace_id], "page": page, "cols": column_ids},
+            )["boards"]
+            for b in batch:
+                b["column_ids"] = {c["id"] for c in b.pop("columns") or []}
+            boards += batch
+            if len(batch) < 500:
+                return boards
+            page += 1
+
     def board_groups(self, board_id: int) -> list[dict]:
         return self._gql("query ($b: [ID!]) { boards(ids: $b) { groups { id title } } }", {"b": [board_id]})["boards"][0]["groups"]
 
