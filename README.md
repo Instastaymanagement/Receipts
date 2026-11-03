@@ -38,7 +38,7 @@ Post the receipt photo or PDF in the channel, ideally with the property name in 
 | Name | Vendor |
 | Date | Receipt date (or the post date if the receipt has none) |
 | Amount / Sales Tax (USA) / HST Paid (Canada) | Read from the receipt |
-| Account | From the post, or the card's last 4 digits. Left blank if unknown |
+| Account | From the post, or the card's last 4 digits (a second card on an account, e.g. Mastercard 6827 → Mastercard 9906, is listed in `CARD_ALIASES` in `config.py`). Left blank if unknown |
 | Property | Linked from Properties Master (USA/Canada) |
 | Category | Best match from the board's categories |
 | Billable to Owner | `Unsure` |

@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from .config import ACCOUNTS, COL, MATCH_DATE_WINDOW_DAYS
+from .config import ACCOUNTS, CARD_ALIASES, COL, MATCH_DATE_WINDOW_DAYS
 
 
 def resolve_account(country: str, claude_account: str | None, card_last4: str | None) -> str | None:
@@ -10,6 +10,9 @@ def resolve_account(country: str, claude_account: str | None, card_last4: str | 
     if claude_account in labels:
         return claude_account
     if card_last4 and len(card_last4) == 4:
+        alias = CARD_ALIASES.get(country, {}).get(card_last4)
+        if alias in labels:
+            return alias
         hits = [label for label in labels if label.endswith(card_last4)]
         if len(hits) == 1:
             return hits[0]
