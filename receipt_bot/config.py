@@ -59,12 +59,12 @@ CARD_ALIASES = {
 BANK = {
     "USA": {
         "plaid_id": "text_mm8b35gj", "date": "date_mm8bn1ns", "account": "dropdown_mm8br48e",
-        "money_out": "numeric_mm8bjz34", "reconciliation": "color_mm8bvyje",
+        "money_out": "numeric_mm8bjz34", "money_in": "numeric_mm8bq5h1", "reconciliation": "color_mm8bvyje",
         "bank_status": "color_mm8bwq12", "notes": "long_text_mm8b7zfz",
     },
     "Canada": {
         "plaid_id": "text_mm8b5gtg", "date": "date_mm8byjx3", "account": "dropdown_mm8bb8ky",
-        "money_out": "numeric_mm8bx64x", "reconciliation": "color_mm8bt0rf",
+        "money_out": "numeric_mm8bx64x", "money_in": "numeric_mm8bn387", "reconciliation": "color_mm8bt0rf",
         "bank_status": "color_mm8ben25", "notes": "long_text_mm8bdywe",
     },
 }
@@ -82,6 +82,9 @@ BANK_DAYS_BEFORE, BANK_DAYS_AFTER = 2, 7
 # Bills and invoices are often paid weeks later. If nothing fits the window above, a single line up
 # to this many days after the receipt still counts (and decides which month the receipt is booked to).
 BANK_DAYS_LATE = 45
+# A refund credit shows up this many days after the refund receipt at most, and refunds a purchase
+# made at most BANK_REFUND_ORIGINAL_DAYS before the credit.
+BANK_REFUND_DAYS, BANK_REFUND_ORIGINAL_DAYS = 30, 90
 # Reconciliation labels a person or the daily reconciliation has already settled.
 BANK_SETTLED = ("Matched", "Not an Expense")
 

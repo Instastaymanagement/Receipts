@@ -210,3 +210,18 @@ def find_bank_match(rows: list[dict], total: float, when: date, last4s: set[str]
                     if len(found) > 1:
                         return None
     return found[0] if found else None
+
+
+def find_refund_original(purchases: list[dict], credit: dict, max_days: int) -> dict | None:
+    """The purchase a refund credit gives money back on: a Matched Money Out line from the same store on
+    the same account, for at least the refund amount, dated up to max_days before the credit. Prefers
+    the same amount, then the latest purchase."""
+    cands = [p for p in purchases
+             if p["reconciliation"] == "Matched" and p["last4"] == credit["last4"]
+             and _merchant(p["name"]) == _merchant(credit["name"])
+             and p["amount"] >= credit["amount"] - 0.01
+             and 0 <= (credit["date"] - p["date"]).days <= max_days]
+    if not cands:
+        return None
+    exact = [p for p in cands if abs(p["amount"] - credit["amount"]) <= 0.01]
+    return max(exact or cands, key=lambda p: p["date"])
